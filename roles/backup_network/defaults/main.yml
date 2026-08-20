@@ -1,4 +1,6 @@
 ---
+# Off for VM testing: tailscale cannot authenticate without a key, and the
+# assert below would stop the run. Jail routing lives in jail_host, not here.
 backup_network_enabled: true
 backup_network_advertise_routes: "{{ jail_subnet }}"
 # Tailscale on FreeBSD is userspace wireguard-go. On this box the 4TB spinning

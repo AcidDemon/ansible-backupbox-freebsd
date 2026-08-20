@@ -2,12 +2,35 @@
 - name: Prepare the host for jails
   when: jail_host_enabled | bool
   block:
+    # lineinfile rather than sysrc, which is the convention everywhere else in
+    # this chain: the sysrc module validates names as alphanumeric plus
+    # underscore and rejects a dotted loader tunable, even though sysrc(8)
+    # itself handles them.
     - name: Enable RACCT accounting at boot
-      community.general.sysrc:
-        name: kern.racct.enable
-        value: "1"
+      ansible.builtin.lineinfile:
         path: /boot/loader.conf
+        regexp: '^kern\.racct\.enable='
+        line: 'kern.racct.enable="1"'
+        create: true
+        owner: root
+        group: wheel
+        mode: "0644"
       when: jail_host_racct | bool
+
+    # Jails sit on routed epairs, so the host forwards for them. base's
+    # pf.conf.j2 notes a routing host must set this itself; base never does.
+    - name: Enable IPv4 forwarding in rc.conf
+      community.general.sysrc:
+        name: gateway_enable
+        value: "YES"
+
+    - name: Enable IPv4 forwarding now
+      ansible.posix.sysctl:
+        name: net.inet.ip.forwarding
+        value: "1"
+        sysctl_file: /etc/sysctl.conf
+        sysctl_set: true
+        reload: false
 
     - name: Enable jails and rctl in rc.conf
       community.general.sysrc:

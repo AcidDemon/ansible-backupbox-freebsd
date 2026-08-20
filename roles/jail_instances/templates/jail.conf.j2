@@ -19,8 +19,12 @@
     vnet;
     vnet.interface = "epair${id}b";
 
-    # Tolerates an epair left behind by an unclean stop.
-    exec.prestart  = "ifconfig epair${id} > /dev/null 2>&1 || ifconfig epair${id} create";
+    # Test for epair${id}a, not epair${id}: creating the pair yields epair${id}a
+    # and epair${id}b, and the bare name never exists, so testing it would always
+    # fall through to create and then fail once the pair is already there. A
+    # failed prestart skips poststop, so the leaked epair would block every
+    # later start.
+    exec.prestart  = "ifconfig epair${id}a > /dev/null 2>&1 || ifconfig epair${id} create";
     exec.prestart += "ifconfig epair${id}a inet ${gw}/24 up";
     exec.poststop  = "ifconfig epair${id}a destroy";
 
@@ -28,4 +32,10 @@
     exec.stop  = "/bin/sh /etc/rc.shutdown";
     exec.clean;
     exec.consolelog = "/var/log/jail_${name}_console.log";
+
+    # Required, not optional. These jails are created before any service is
+    # installed in them, so on a first converge /etc/rc exits with no process
+    # left running and jail(8) would drop the jail again the moment it finished.
+    # The next start would then fail on its own leftover mounts.
+    persist;
 }

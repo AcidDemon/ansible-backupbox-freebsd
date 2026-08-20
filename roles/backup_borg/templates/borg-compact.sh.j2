@@ -1,15 +1,27 @@
 #!/bin/sh
 # Managed by Ansible
-# Runs on the host, as root, outside the jail. The asymmetry is the point: the
-# client can never prune, the host always can. Neither needs the repo passphrase.
+# Runs on the host, as root, outside the jail.
+#
+# compact only. borg prune needs the repository passphrase, which the host does
+# not have and must not have: these repos are encrypted client-side. So the
+# client applies its own retention with prune, which append-only records without
+# destroying anything, and the host reclaims the space afterwards. compact is the
+# half that works without a key.
 set -u
 log() { logger -t borg-compact "$*"; echo "[borg-compact] $*"; }
 BORG=/usr/local/bin/borg
 
-for repo in {{ backup_root }}/{{ backup_borg_jail }}/*; do
-    [ -d "$repo" ] || continue
-    name=$(basename "$repo")
-    $BORG prune {{ backup_borg_keep }} "$repo" || log "$name: prune rc=$?"
-    $BORG compact "$repo" || log "$name: compact rc=$?"
+# The client chooses its own repository path under its directory, so the client
+# directory is usually not itself the repo. Find real repos by their layout: a
+# borg repo is a directory holding both a config file and a data directory.
+find_borg_repos() {
+    find "$1" -maxdepth 3 -type f -name config 2>/dev/null | while read -r cfg; do
+        repo=$(dirname "$cfg")
+        [ -d "$repo/data" ] && echo "$repo"
+    done
+}
+
+find_borg_repos "{{ backup_root }}/{{ backup_borg_jail }}" | while read -r repo; do
+    $BORG compact "$repo" || log "$repo: compact rc=$?"
 done
 log "done"

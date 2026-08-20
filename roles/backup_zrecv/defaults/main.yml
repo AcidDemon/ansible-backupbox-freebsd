@@ -1,6 +1,10 @@
 ---
 backup_zrecv_enabled: true
 backup_zrecv_user: zfsrecv
+# Bind address for the listener. Empty binds everything and leans on pf; set it
+# to the tailnet address for defence in depth. Left empty by default because the
+# address is not known until tailscale has come up at least once.
+backup_zrecv_listen_address: ""
 backup_zrecv_uid: 4999
 # Deliberately excludes destroy and rollback. Without rollback, `zfs recv -F`
 # fails, so a client cannot roll a dataset back over a newer snapshot.

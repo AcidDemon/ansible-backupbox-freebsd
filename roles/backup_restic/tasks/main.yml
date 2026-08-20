@@ -11,7 +11,18 @@
       community.general.pkgng:
         name: rest-server
         state: present
-        jail: "{{ backup_restic_jail }}"
+        rootdir: "{{ _jail_root }}"
+      environment: "{{ jail_pkg_environment }}"
+      register: _restic_pkg
+
+    # pkg -r writes the files but runs no post-install step inside the jail, so
+    # the jail's linker hints never learn about /usr/local/lib. Without this,
+    # anything linked against a package library dies with
+    # "Shared object ... not found" even though the file is right there.
+    - name: Refresh the jail linker hints
+      ansible.builtin.command: "jexec {{ backup_restic_jail }} /etc/rc.d/ldconfig restart"
+      changed_when: true
+      when: _restic_pkg is changed
 
     - name: Refuse to configure a restic client with no password in vault
       ansible.builtin.assert:
@@ -23,16 +34,31 @@
         label: "{{ item.name }}"
       no_log: true
 
+    # rest-server drops privileges to its own account, which exists only inside
+    # the jail, so the host has to chown its data numerically.
+    - name: Read the restserver uid from inside the jail
+      ansible.builtin.command: "pw -R {{ _jail_root }} usershow {{ backup_restic_user }}"
+      register: _restserver_pw
+      changed_when: false
+
     - name: Create the per-client repository directories
       ansible.builtin.file:
         path: "{{ backup_root }}/{{ backup_restic_jail }}/{{ item.name }}"
         state: directory
-        owner: root
-        group: wheel
-        mode: "0755"
+        owner: "{{ _restserver_pw.stdout.split(':')[2] }}"
+        group: "{{ _restserver_pw.stdout.split(':')[3] }}"
+        mode: "0700"
       loop: "{{ _client_rows }}"
       loop_control:
         label: "{{ item.name }}"
+
+    - name: Let restserver write into the repository root
+      ansible.builtin.file:
+        path: "{{ backup_root }}/{{ backup_restic_jail }}"
+        state: directory
+        owner: "{{ _restserver_pw.stdout.split(':')[2] }}"
+        group: "{{ _restserver_pw.stdout.split(':')[3] }}"
+        mode: "0755"
 
     # rest-server runs as one service user and enforces per-repo separation
     # itself via --private-repos, so there is no per-client unix account here.
@@ -47,9 +73,11 @@
     - name: Generate the htpasswd file
       ansible.builtin.template:
         src: htpasswd.j2
-        dest: "{{ _jail_root }}/usr/local/etc/rest-server.htpasswd"
-        owner: root
-        group: wheel
+        dest: "{{ _jail_root }}/usr/local/etc/{{ backup_restic_service }}.htpasswd"
+        # rest-server drops to its own account before reading this, so root-owned
+        # 0600 makes it unreadable to the process that needs it.
+        owner: "{{ _restserver_pw.stdout.split(':')[2] }}"
+        group: "{{ _restserver_pw.stdout.split(':')[3] }}"
         mode: "0600"
       no_log: true
       notify: Restart rest-server
@@ -63,3 +91,24 @@
         mode: "0644"
         backup: true
       notify: Restart rest-server
+
+    # Enabling in rc.conf starts nothing, and the restart handler only fires when
+    # a config file changes in this run. Without this a freshly created jail has
+    # rest-server enabled and not running, and the failure only shows up later
+    # as a refused connection.
+    - name: Check whether rest-server is running
+      ansible.builtin.command: "jexec {{ backup_restic_jail }} service {{ backup_restic_service }} status"
+      register: _restic_svc
+      changed_when: false
+      failed_when: false
+
+    - name: Start rest-server
+      ansible.builtin.command: "jexec {{ backup_restic_jail }} service {{ backup_restic_service }} start"
+      changed_when: true
+      when: _restic_svc.rc != 0
+
+    - name: Confirm rest-server is running
+      ansible.builtin.command: "jexec {{ backup_restic_jail }} service {{ backup_restic_service }} status"
+      register: _restic_svc_after
+      changed_when: false
+      failed_when: _restic_svc_after.rc != 0

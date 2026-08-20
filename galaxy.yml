@@ -1,5 +1,5 @@
 namespace: acidnetworks
-name: backupbox
+name: backupbox_freebsd
 version: 0.1.0
 readme: README.md
 authors:
@@ -19,8 +19,8 @@ tags:
 dependencies:
   community.general: "*"
   ansible.posix: "*"
-repository: https://github.com/AcidDemon/freebsd-backupbox
-issues: https://github.com/AcidDemon/freebsd-backupbox/issues
+repository: https://github.com/AcidDemon/ansible-backupbox-freebsd
+issues: https://github.com/AcidDemon/ansible-backupbox-freebsd/issues
 # Ship roles and playbooks only. Everything else is orchestrator-local, especially
 # files/ (committed deploy keys) and inventory/ (vault).
 build_ignore:

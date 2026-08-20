@@ -4,6 +4,14 @@
 # service-account TOTP problem), and from the at(1) rollback that strips only the
 # 10-hardening and 20-2fa drop-ins.
 Port {{ zrecv_port }}
+{% if backup_zrecv_listen_address | length > 0 %}
+ListenAddress {{ backup_zrecv_listen_address }}
+{% else %}
+# Unset, so this binds every interface. pf still restricts {{ zrecv_port }} to
+# firewall_service_cidrs, so nothing reaches it off the tailnet. Set
+# backup_zrecv_listen_address to the node's tailnet address once it is known, to
+# stop relying on pf alone.
+{% endif %}
 PidFile /var/run/sshd-{{ backup_zrecv_user }}.pid
 HostKey /usr/local/etc/ssh-{{ backup_zrecv_user }}/ssh_host_ed25519_key
 

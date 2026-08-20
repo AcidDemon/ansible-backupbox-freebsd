@@ -20,11 +20,21 @@ backup_root: /backup
 
 # Each jail gets its own /24 on a routed epair. No shared bridge: jail-to-jail
 # traffic would bypass pf on a bridge, and these jails need no outbound network
-# at all (pkg -j runs the host's pkg against the jail root), so inbound-only is
+# at all (pkg -r installs into the jail root over the host's network), so
+# inbound-only is
 # both simpler and stricter.
 jail_subnet: 10.100.0.0/16
 jail_dataset: zroot/jails
-jail_base_version: 15.1-RELEASE
+# Empty means "match the host userland", which is what a thin jail needs.
+# Set a version only to stage an upgrade: extract the new base, flip this,
+# restart the jails, then clear it again once the host follows.
+jail_base_version: ""
+
+# Environment for pkg operations against a jail root. Normally empty. The escape
+# hatch exists because FreeBSD builds a branch's packages against its newest
+# release, so a host deliberately held at an older patch level sees
+# "Newer FreeBSD version for package ..." and needs IGNORE_OSVERSION=yes.
+jail_pkg_environment: {}
 
 jails:
   - name: borg

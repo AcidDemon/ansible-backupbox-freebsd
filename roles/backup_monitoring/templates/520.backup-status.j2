@@ -18,6 +18,16 @@ now=$(date +%s)
 # schedule whether or not the client wrote anything, so plain snapshot age would
 # never look stale - it would always be under an hour old and always pass.
 # `written` is the space a snapshot holds that its predecessor did not.
+# The client chooses its own repository path under its directory, so the client
+# directory is usually not itself the repo. Find real repos by their layout: a
+# borg repo is a directory holding both a config file and a data directory.
+find_borg_repos() {
+    find "$1" -maxdepth 3 -type f -name config 2>/dev/null | while read -r cfg; do
+        repo=$(dirname "$cfg")
+        [ -d "$repo/data" ] && echo "$repo"
+    done
+}
+
 last_change() {
     zfs list -H -p -t snapshot -o creation,written -S creation -r "$1" 2>/dev/null |
         awk '$2 > 0 { print $1; exit }'
@@ -55,8 +65,7 @@ echo
 echo "== borg repository integrity =="
 # --repository-only checks segment integrity without the repo passphrase, which
 # the host does not have and should not have.
-for repo in {{ backup_root }}/borg/*; do
-    [ -d "$repo" ] || continue
+for repo in $(find_borg_repos "{{ backup_root }}/borg"); do
     if /usr/local/bin/borg check --repository-only "$repo" 2>&1; then
         echo "ok       $repo"
     else

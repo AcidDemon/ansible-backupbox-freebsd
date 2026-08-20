@@ -1,4 +1,5 @@
 ---
 backup_rsync_enabled: true
 backup_rsync_jail: rsync
-backup_rsync_rrsync: /usr/local/bin/rrsync
+# sbin, not bin. The rsync package ships it as /usr/local/sbin/rrsync.
+backup_rsync_rrsync: /usr/local/sbin/rrsync

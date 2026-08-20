@@ -2,7 +2,7 @@
 jail_base_enabled: true
 jail_base_mirror: https://download.freebsd.org/releases/amd64
 jail_base_workdir: /var/tmp
-# Weekly `pkg -j <jail> upgrade`. Deliberately NOT named freebsd-auto-update:
+# Weekly `pkg -r <jailroot> upgrade`. Deliberately NOT named freebsd-auto-update:
 # base_freebsd re-copies its own script of that name on every run, and the two
 # would fight. base's script is host-only and never touches jail roots.
 jail_base_update_cron:

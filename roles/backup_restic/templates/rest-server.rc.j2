@@ -1,6 +1,11 @@
 # Managed by Ansible
 {{ backup_restic_service }}_enable="YES"
+{{ backup_restic_service }}_user="{{ backup_restic_user }}"
+{{ backup_restic_service }}_group="{{ backup_restic_user }}"
+# The rc script passes --path itself from this variable, so it must not also
+# appear in _options.
+{{ backup_restic_service }}_store="/backups"
 # --append-only is the whole point: a client holding valid credentials can write
 # new snapshots but `restic forget --prune` against this server is refused.
 # --private-repos confines each user to /<username>.
-{{ backup_restic_service }}_options="--path /backups --listen :{{ backup_restic_port }} --append-only --private-repos --htpasswd-file /usr/local/etc/rest-server.htpasswd{% if backup_restic_tls %} --tls --tls-cert /usr/local/etc/rest-server.crt --tls-key /usr/local/etc/rest-server.key{% endif %}"
+{{ backup_restic_service }}_options="--listen :{{ backup_restic_port }} --append-only --private-repos --htpasswd-file /usr/local/etc/{{ backup_restic_service }}.htpasswd{% if backup_restic_tls %} --tls --tls-cert /usr/local/etc/{{ backup_restic_service }}.crt --tls-key /usr/local/etc/{{ backup_restic_service }}.key{% endif %}"

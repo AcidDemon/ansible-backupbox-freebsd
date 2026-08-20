@@ -36,9 +36,36 @@
         owner: root
         group: wheel
         mode: "{{ '1777' if item.1 == 'tmp' else '0755' }}"
-      loop: "{{ jails | product(['dev', 'usr/local', 'backups', 'tmp']) | list }}"
+      loop: "{{ jails | product(['usr/local', 'tmp']) | list }}"
       loop_control:
         label: "{{ item.0.name }}/{{ item.1 }}"
+
+    # No owner or mode on either. jail(8) mounts devfs over dev, and backups
+    # holds nothing but per-client mountpoints. Forcing permissions on a path
+    # something else mounts over writes straight through onto the mounted
+    # filesystem and fights whoever legitimately owns it.
+    - name: Create the mountpoint directories
+      ansible.builtin.file:
+        path: "{{ jail_dataset_mount }}/{{ item.0.name }}/{{ item.1 }}"
+        state: directory
+      loop: "{{ jails | product(['dev', 'backups']) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}/{{ item.1 }}"
+
+    # One nullfs mountpoint per client dataset. See the note in fstab.j2: nullfs
+    # does not cross mount points, so each client dataset needs its own mount and
+    # therefore its own mountpoint inside the jail.
+    # Deliberately no owner or mode. Once the client dataset is nullfs-mounted
+    # here, setting them would write straight through the mount onto the real
+    # dataset and fight the service role that owns those permissions.
+    - name: Create the per-client mountpoints inside each jail
+      ansible.builtin.file:
+        path: "{{ jail_dataset_mount }}/{{ item.0.name }}/backups/{{ item.1.name }}"
+        state: directory
+      loop: "{{ jails | product(backup_clients) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}/{{ item.1.name }}"
+      when: item.0.name in item.1.services
 
     # Seeded once from the base, then owned by the jail. Extracting a new
     # jail_base_version deliberately does not touch these.
@@ -47,7 +74,7 @@
         argv:
           - cp
           - -a
-          - "{{ jail_dataset_mount }}/base-{{ jail_base_version }}/{{ item.1 }}"
+          - "{{ jail_dataset_mount }}/base-{{ jail_base }}/{{ item.1 }}"
           - "{{ jail_dataset_mount }}/{{ item.0.name }}/{{ item.1 }}"
         creates: "{{ jail_dataset_mount }}/{{ item.0.name }}/{{ item.1 }}"
       loop: "{{ jails | product(['etc', 'var', 'root']) | list }}"
@@ -131,6 +158,38 @@
       loop_control:
         label: "{{ item.name }}"
 
+    # jail(8) unwinds its own mounts when a start fails, but not when the
+    # failure is in prestart: poststop never runs, so the epair and sometimes
+    # the mounts survive and every later start dies on "Resource deadlock
+    # avoided". Only touches jails jls says are not running, so nothing live is
+    # ever unmounted.
+    - name: Clear leftover mounts and epairs from a failed start
+      ansible.builtin.shell: |
+        set -u
+        root="{{ jail_dataset_mount }}/{{ item.item.name }}/"
+        cleaned=""
+        if mount | grep -q " on ${root}"; then
+            mount | awk -v r="$root" '$3 ~ "^" r { print $3 }' | sort -r |
+                while read -r m; do umount -f "$m" 2>/dev/null; done
+            if mount | grep -q " on ${root}"; then
+                echo "stale mounts survived umount under ${root}" >&2
+                exit 1
+            fi
+            cleaned="mounts"
+        fi
+        if ifconfig epair{{ item.item.id }}a > /dev/null 2>&1; then
+            ifconfig epair{{ item.item.id }}a destroy
+            cleaned="${cleaned} epair"
+        fi
+        [ -n "$cleaned" ] && echo "cleaned:${cleaned}"
+        exit 0
+      register: _jail_cleanup
+      changed_when: "'cleaned:' in _jail_cleanup.stdout"
+      loop: "{{ _jls.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.rc != 0
+
     - name: Start the jails that are not running
       # noqa: command-instead-of-module - starts one named jail, not the rc script.
       ansible.builtin.command: "service jail start {{ item.item.name }}"
@@ -139,3 +198,55 @@
       loop_control:
         label: "{{ item.item.name }}"
       when: item.rc != 0
+
+    # A handler only fires when the fstab changes during THIS run. If the run
+    # that changed it died before handlers flushed, the jail keeps the previous
+    # base mounted, and every later run sees no change and never repairs it.
+    # Compare what is actually mounted against what the fstab now asks for.
+    - name: Restart jails whose mounted base has drifted
+      ansible.builtin.shell: |
+        set -u
+        want="{{ jail_dataset_mount }}/base-{{ jail_base }}/bin"
+        have=$(mount | awk -v t="{{ jail_dataset_mount }}/{{ item.name }}/bin" '$3 == t { print $1 }')
+        [ "$have" = "$want" ] && exit 0
+        echo "drift: have=${have:-none} want=${want}"
+        service jail restart {{ item.name }} > /dev/null 2>&1 || true
+        exit 0
+      register: _jail_drift
+      changed_when: "'drift:' in _jail_drift.stdout"
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # service jail start exits 0 even when the jail failed to start, so without
+    # this a broken jail is reported as changed and the failure only surfaces
+    # later as a confusing failure from whatever touches the jail next.
+    - name: Confirm every jail is running
+      ansible.builtin.command: "jls -j {{ item.name }} jid"
+      register: _jls_after
+      changed_when: false
+      failed_when: false
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Refuse to continue with a jail that did not start
+      ansible.builtin.assert:
+        that: item.rc == 0
+        fail_msg: >-
+          Jail '{{ item.item.name }}' is not running. Check
+          `jail -v -c -f /etc/jail.conf.d/{{ item.item.name }}.conf {{ item.item.name }}`
+          and /var/log/jail_{{ item.item.name }}_console.log. Leftover mounts and
+          epairs are cleared automatically before each start, so this is a real
+          configuration failure rather than stale state.
+        quiet: true
+      loop: "{{ _jls_after.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+# Outside the block on purpose: meta tasks ignore conditionals anyway, and
+# flushing with nothing pending is a no-op. Without this the Restart jails
+# handler waits until end of play, so every service role that follows would
+# install packages and write configs against the previous base's nullfs mounts.
+- name: Apply pending jail restarts before the service roles run
+  ansible.builtin.meta: flush_handlers

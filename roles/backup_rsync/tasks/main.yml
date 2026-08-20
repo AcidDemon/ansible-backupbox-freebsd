@@ -10,58 +10,78 @@
          | selectattr('transfer', 'equalto', 'sftp') | list }}
     _rsync_clients: "{{ _client_rows | rejectattr('name', 'in', _sftp_clients | map(attribute='name') | list) | list }}"
   block:
-    - name: Install rsync in the jail
+    # python3 is not a dependency of the rsync package, but rrsync is a python
+    # script, so without it the forced command dies with "not found" - which
+    # looks like a missing rrsync rather than a missing interpreter.
+    - name: Install rsync and its rrsync interpreter in the jail
       community.general.pkgng:
-        name: rsync
+        name:
+          - rsync
+          - python3
         state: present
-        jail: "{{ backup_rsync_jail }}"
+        rootdir: "{{ _jail_root }}"
       when: _rsync_clients | length > 0
+      environment: "{{ jail_pkg_environment }}"
+      register: _rsync_pkg
+
+    # pkg -r writes the files but runs no post-install step inside the jail, so
+    # the jail's linker hints never learn about /usr/local/lib. Without this,
+    # anything linked against a package library dies with
+    # "Shared object ... not found" even though the file is right there.
+    - name: Refresh the jail linker hints
+      ansible.builtin.command: "jexec {{ backup_rsync_jail }} /etc/rc.d/ldconfig restart"
+      changed_when: true
+      when: _rsync_pkg is changed
 
     # rrsync is what confines an rsync client to one path. Without it there is no
     # server-side restriction at all, so fail loudly rather than quietly shipping
     # an unrestricted forced command.
-    - name: Verify rrsync is present in the jail
-      ansible.builtin.stat:
-        path: "{{ _jail_root }}{{ backup_rsync_rrsync }}"
+    # Run it rather than stat it. The file existing proves nothing: rrsync is a
+    # python script, so a missing interpreter fails at exec time with "not
+    # found" while the script sits right there.
+    - name: Verify rrsync actually runs in the jail
+      ansible.builtin.command: "jexec {{ backup_rsync_jail }} {{ backup_rsync_rrsync }}"
       register: _rrsync
+      changed_when: false
+      failed_when: false
       when: _rsync_clients | length > 0
 
-    - name: Refuse to configure rsync clients without rrsync
+    - name: Refuse to configure rsync clients without a working rrsync
       ansible.builtin.assert:
-        that: _rrsync.stat.exists
+        that: "'not found' not in (_rrsync.stderr | default('') ~ _rrsync.stdout | default(''))"
         fail_msg: >-
-          {{ backup_rsync_rrsync }} is missing inside the {{ backup_rsync_jail }} jail.
-          The rsync package did not ship it. Install it there, or set every client's
-          transfer to 'sftp'.
+          {{ backup_rsync_rrsync }} does not run inside the {{ backup_rsync_jail }}
+          jail: {{ _rrsync.stderr | default('') | trim }}. rrsync is a python
+          script, so this is usually a missing interpreter rather than a missing
+          rrsync. Fix it, or set every client's transfer to 'sftp'.
         quiet: true
       when: _rsync_clients | length > 0
 
-    - name: Create a jail user per rsync client
-      ansible.builtin.command:
-        argv:
-          - pw
-          - -R
-          - "{{ _jail_root }}"
-          - useradd
-          - "{{ item.name }}"
-          - -u
-          - "{{ item.uid }}"
-          - -d
-          - "/backups/{{ item.name }}"
-          - -s
-          - /usr/sbin/nologin
-          - -c
-          - "rsync client {{ item.name }}"
+    # /bin/sh, not nologin: sshd runs a forced command as "$SHELL -c ...", so a
+    # nologin shell answers "This account is currently not available" and the
+    # forced command never runs. Confinement comes from the forced command and
+    # `restrict` in authorized_keys, not from the shell.
+    - name: Create or update a jail user per rsync client
+      ansible.builtin.shell: |
+        set -u
+        root="{{ _jail_root }}"
+        name="{{ item.name }}"
+        if pw -R "$root" usershow "$name" > /dev/null 2>&1; then
+            cur=$(pw -R "$root" usershow "$name" | cut -d: -f10)
+            [ "$cur" = "/bin/sh" ] && exit 0
+            pw -R "$root" usermod "$name" -s /bin/sh
+            echo changed
+        else
+            pw -R "$root" useradd "$name" -u {{ item.uid }} \
+               -d "/backups/${name}" -s /bin/sh -c "rsync client ${name}"
+            echo changed
+        fi
       register: _rsync_user
-      changed_when: _rsync_user.rc == 0
-      failed_when: _rsync_user.rc not in [0, 65]
+      changed_when: "'changed' in _rsync_user.stdout"
       loop: "{{ _client_rows }}"
       loop_control:
         label: "{{ item.name }}"
 
-    # sshd refuses a ChrootDirectory that is not root-owned and not writable by
-    # anyone else, so the chroot root stays root:wheel 0755 and the client owns
-    # only the data/ directory below it.
     - name: Create the sftp chroot roots
       ansible.builtin.file:
         path: "{{ backup_root }}/{{ backup_rsync_jail }}/{{ item.name }}"
@@ -95,13 +115,17 @@
       loop_control:
         label: "{{ item.name }}"
 
+    # root-owned, like the borg jail's. A client-owned .ssh would let the client
+    # unlink and replace its own authorized_keys. rrsync and the sftp chroot both
+    # confine clients elsewhere, so this is not reachable today, but the
+    # restriction should not depend on that staying true.
     - name: Create the client .ssh directories
       ansible.builtin.file:
         path: "{{ _jail_root }}/home/{{ item.name }}/.ssh"
         state: directory
-        owner: "{{ item.uid }}"
-        group: "{{ item.uid }}"
-        mode: "0700"
+        owner: root
+        group: wheel
+        mode: "0755"
       loop: "{{ _client_rows }}"
       loop_control:
         label: "{{ item.name }}"
@@ -138,3 +162,24 @@
         value: "YES"
         path: "{{ _jail_root }}/etc/rc.conf"
       notify: Restart rsync sshd
+
+    # Enabling in rc.conf starts nothing, and the restart handler only fires when
+    # a config file changes in this run. Without this a freshly created jail has
+    # sshd enabled and not running, and the failure only shows up later as a
+    # refused connection.
+    - name: Check whether the jail sshd is running
+      ansible.builtin.command: "jexec {{ backup_rsync_jail }} service sshd status"
+      register: _rsync_svc
+      changed_when: false
+      failed_when: false
+
+    - name: Start the jail sshd
+      ansible.builtin.command: "jexec {{ backup_rsync_jail }} service sshd start"
+      changed_when: true
+      when: _rsync_svc.rc != 0
+
+    - name: Confirm the jail sshd is running
+      ansible.builtin.command: "jexec {{ backup_rsync_jail }} service sshd status"
+      register: _rsync_svc_after
+      changed_when: false
+      failed_when: _rsync_svc_after.rc != 0

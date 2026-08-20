@@ -19,9 +19,3 @@
         mode: "0755"
         validate: "/bin/sh -n %s"
       no_log: true   # healthchecks ping URLs are vaulted
-
-    - name: Ensure periodic security reporting is on
-      community.general.sysrc:
-        name: daily_status_security_enable
-        value: "YES"
-        path: /etc/periodic.conf

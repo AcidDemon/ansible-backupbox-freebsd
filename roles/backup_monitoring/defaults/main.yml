@@ -1,5 +1,8 @@
 ---
 backup_monitoring_enabled: true
+# This role does not touch daily_status_security_enable: base_updates already
+# owns that key in /etc/periodic.conf, and two layers writing the same value is
+# how you get a task that reports changed forever.
 # Dropped into periodic's security dir, the same hook hardening_freebsd's aide
 # role uses for 510.aide. `periodic security` runs it and mails the combined
 # output to root, which hardening_misc already aliases to admin_email - so no

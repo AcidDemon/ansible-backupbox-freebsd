@@ -1,5 +1,7 @@
 # Managed by Ansible
-# --append-only is the first line of defence: a client holding a valid key can
-# write new archives but cannot prune or delete existing ones. Host-owned ZFS
-# snapshots are the second. `restrict` drops pty, forwarding and agent access.
+# --append-only does not refuse prune or delete: those succeed and the archives
+# vanish from `borg list`. What it guarantees is that the removal is not
+# destructive, so the segments stay and the operator can roll the repo back to an
+# earlier transaction. Host-owned ZFS snapshots are the actual guarantee.
+# `restrict` drops pty, forwarding and agent access.
 command="borg serve --append-only --restrict-to-path /backups/{{ client.name }}",restrict {{ client.ssh_key }}

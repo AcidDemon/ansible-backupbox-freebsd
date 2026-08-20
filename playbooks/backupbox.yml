@@ -7,7 +7,7 @@
   become: true
   gather_facts: true
   collections:
-    - acidnetworks.backupbox
+    - acidnetworks.backupbox_freebsd
 
   pre_tasks:
     - name: Refuse to run on anything but FreeBSD

@@ -17,21 +17,6 @@
         name: tailscaled
         state: started
 
-    # Routing tailnet traffic into the jail /24s. base's pf.conf.j2 notes that a
-    # routing host must set this itself; base never does.
-    - name: Enable IPv4 forwarding in rc.conf
-      community.general.sysrc:
-        name: gateway_enable
-        value: "YES"
-
-    - name: Enable IPv4 forwarding now
-      ansible.posix.sysctl:
-        name: net.inet.ip.forwarding
-        value: "1"
-        sysctl_file: /etc/sysctl.conf
-        sysctl_set: true
-        reload: false
-
     - name: Read tailscale backend state
       ansible.builtin.command: tailscale status --json
       register: _ts_status
