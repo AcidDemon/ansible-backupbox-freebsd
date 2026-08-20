@@ -1,0 +1,59 @@
+---
+- name: Configure the tailnet and jail routing
+  when: backup_network_enabled | bool
+  block:
+    - name: Install tailscale
+      community.general.pkgng:
+        name: tailscale
+        state: present
+
+    - name: Enable tailscaled
+      community.general.sysrc:
+        name: tailscaled_enable
+        value: "YES"
+
+    - name: Ensure tailscaled is running
+      ansible.builtin.service:
+        name: tailscaled
+        state: started
+
+    # Routing tailnet traffic into the jail /24s. base's pf.conf.j2 notes that a
+    # routing host must set this itself; base never does.
+    - name: Enable IPv4 forwarding in rc.conf
+      community.general.sysrc:
+        name: gateway_enable
+        value: "YES"
+
+    - name: Enable IPv4 forwarding now
+      ansible.posix.sysctl:
+        name: net.inet.ip.forwarding
+        value: "1"
+        sysctl_file: /etc/sysctl.conf
+        sysctl_set: true
+        reload: false
+
+    - name: Read tailscale backend state
+      ansible.builtin.command: tailscale status --json
+      register: _ts_status
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse to continue with an unauthenticated tailnet node
+      ansible.builtin.assert:
+        that: (_ts_status.stdout | from_json).BackendState | default('') == 'Running'
+        fail_msg: >-
+          tailscaled is not authenticated. Run `tailscale up` on the host once, then
+          re-run. Also turn OFF key expiry for this node in the Tailscale admin
+          console: the 180-day default would silently drop the box off the tailnet
+          and fail every backup with no obvious cause.
+        quiet: true
+
+    - name: Advertise the jail subnet
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - set
+          - "--advertise-routes={{ backup_network_advertise_routes }}"
+          - "--accept-dns={{ backup_network_accept_dns | lower }}"
+      register: _ts_set
+      changed_when: _ts_set.stdout | length > 0

@@ -1,0 +1,13 @@
+---
+backup_restic_enabled: true
+backup_restic_jail: restic
+# rc.d script name from the FreeBSD rest-server port.
+backup_restic_service: rest_server
+backup_restic_port: 8000
+# ponytail: plain HTTP, add TLS if this port ever gets a non-tailnet path.
+# Plain HTTP on purpose. The only route to this port is the tailnet, which is
+# already WireGuard-encrypted and authenticated end to end, and restic encrypts
+# repository contents client-side regardless. Adding TLS here buys a cert
+# lifecycle to maintain, not confidentiality. Flip this if the box ever gets a
+# path that is not the tailnet.
+backup_restic_tls: false

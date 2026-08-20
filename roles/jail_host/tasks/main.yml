@@ -1,0 +1,46 @@
+---
+- name: Prepare the host for jails
+  when: jail_host_enabled | bool
+  block:
+    - name: Enable RACCT accounting at boot
+      community.general.sysrc:
+        name: kern.racct.enable
+        value: "1"
+        path: /boot/loader.conf
+      when: jail_host_racct | bool
+
+    - name: Enable jails and rctl in rc.conf
+      community.general.sysrc:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+      loop:
+        - { name: jail_enable, value: "YES" }
+        - { name: jail_parallel_start, value: "YES" }
+        - { name: rctl_enable, value: "YES" }
+        - { name: rctl_rules, value: "/etc/rctl.conf" }
+
+    - name: Render /etc/rctl.conf
+      ansible.builtin.template:
+        src: rctl.conf.j2
+        dest: /etc/rctl.conf
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+      notify: Reload rctl
+
+    - name: Check whether RACCT is live in this kernel
+      ansible.builtin.command: sysctl -n kern.racct.enable
+      register: _racct
+      changed_when: false
+      failed_when: false
+
+    # Not an assert: everything else in this play is still correct without racct,
+    # and failing the run would be worse than saying so plainly.
+    - name: Warn when the RACCT reboot is still pending
+      ansible.builtin.debug:
+        msg: >-
+          kern.racct.enable is not active yet, so the rules in /etc/rctl.conf are
+          not enforced. They take effect after the next reboot - which on this box
+          means an unlock.sh round trip, so pick your moment.
+      when: _racct.stdout | default('0') | trim != '1'

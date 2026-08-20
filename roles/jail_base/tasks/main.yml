@@ -1,0 +1,73 @@
+---
+- name: Build the shared thin-jail base
+  when: jail_base_enabled | bool
+  block:
+    - name: Create the jails dataset
+      community.general.zfs:
+        name: "{{ jail_dataset }}"
+        state: present
+        extra_zfs_properties:
+          mountpoint: "{{ jail_dataset_mount }}"
+
+    - name: Create the versioned base dataset
+      community.general.zfs:
+        name: "{{ jail_dataset }}/base-{{ jail_base_version }}"
+        state: present
+
+    - name: Fetch the release checksum manifest
+      ansible.builtin.get_url:
+        url: "{{ jail_base_mirror }}/{{ jail_base_version }}/CHECKSUM.SHA256"
+        dest: "{{ jail_base_workdir }}/CHECKSUM.SHA256-{{ jail_base_version }}"
+        mode: "0644"
+
+    # FreeBSD publishes BSD-style "SHA256 (base.txz) = <hash>", which get_url's
+    # checksum-from-URL form cannot parse. Pull the hash out ourselves.
+    - name: Extract the base.txz checksum
+      ansible.builtin.command: >-
+        awk '/\(base\.txz\)/ { print $4 }'
+        {{ jail_base_workdir }}/CHECKSUM.SHA256-{{ jail_base_version }}
+      register: _base_sha
+      changed_when: false
+
+    - name: Fetch base.txz
+      ansible.builtin.get_url:
+        url: "{{ jail_base_mirror }}/{{ jail_base_version }}/base.txz"
+        dest: "{{ jail_base_workdir }}/base-{{ jail_base_version }}.txz"
+        checksum: "sha256:{{ _base_sha.stdout | trim }}"
+        mode: "0644"
+
+    - name: Extract base.txz into the base dataset
+      ansible.builtin.command:
+        argv:
+          - tar
+          - -xpf
+          - "{{ jail_base_workdir }}/base-{{ jail_base_version }}.txz"
+          - -C
+          - "{{ jail_dataset_mount }}/base-{{ jail_base_version }}"
+        creates: "{{ jail_dataset_mount }}/base-{{ jail_base_version }}/bin/sh"
+
+    # Updating means extracting a new version alongside and flipping
+    # jail_base_version, not mutating this one.
+    - name: Freeze the base dataset
+      community.general.zfs:
+        name: "{{ jail_dataset }}/base-{{ jail_base_version }}"
+        state: present
+        extra_zfs_properties:
+          readonly: "on"
+
+    - name: Install the jail package updater
+      ansible.builtin.template:
+        src: jail-pkg-update.sh.j2
+        dest: /usr/local/sbin/jail-pkg-update
+        owner: root
+        group: wheel
+        mode: "0755"
+
+    - name: Schedule the jail package updater
+      ansible.builtin.cron:
+        name: jail-pkg-update
+        user: root
+        minute: "{{ jail_base_update_cron.minute }}"
+        hour: "{{ jail_base_update_cron.hour }}"
+        weekday: "{{ jail_base_update_cron.weekday }}"
+        job: /usr/local/sbin/jail-pkg-update

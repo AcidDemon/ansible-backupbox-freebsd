@@ -1,0 +1,21 @@
+#!/bin/sh
+# Managed by Ansible
+#
+# PROVIDE: sshd_zfsrecv
+# REQUIRE: LOGIN FILESYSTEMS
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="sshd_zfsrecv"
+rcvar="sshd_zfsrecv_enable"
+command="/usr/sbin/sshd"
+command_args="-f /usr/local/etc/ssh-zfsrecv/sshd_config"
+pidfile="/var/run/sshd-zfsrecv.pid"
+extra_commands="configtest"
+configtest_cmd="/usr/sbin/sshd -t -f /usr/local/etc/ssh-zfsrecv/sshd_config"
+
+load_rc_config $name
+: ${sshd_zfsrecv_enable:="NO"}
+
+run_rc_command "$1"

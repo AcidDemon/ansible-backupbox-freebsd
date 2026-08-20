@@ -1,0 +1,65 @@
+---
+- name: Configure the restic ingest jail
+  when: backup_restic_enabled | bool
+  vars:
+    _jail_root: "{{ jail_dataset_mount }}/{{ backup_restic_jail }}"
+    _client_rows: "{{ backup_clients | selectattr('services', 'contains', 'restic') | list }}"
+  block:
+    # No sshd in this jail at all. rest-server speaks HTTP, which is also the
+    # only way to get restic's append-only guarantee - it has none over sftp.
+    - name: Install rest-server in the jail
+      community.general.pkgng:
+        name: rest-server
+        state: present
+        jail: "{{ backup_restic_jail }}"
+
+    - name: Refuse to configure a restic client with no password in vault
+      ansible.builtin.assert:
+        that: item.name in (vault_restic_passwords | default({}))
+        fail_msg: "No vault_restic_passwords entry for '{{ item.name }}'."
+        quiet: true
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: Create the per-client repository directories
+      ansible.builtin.file:
+        path: "{{ backup_root }}/{{ backup_restic_jail }}/{{ item.name }}"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # rest-server runs as one service user and enforces per-repo separation
+    # itself via --private-repos, so there is no per-client unix account here.
+    - name: Ensure the jail rc.conf.d exists
+      ansible.builtin.file:
+        path: "{{ _jail_root }}/etc/rc.conf.d"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+
+    - name: Generate the htpasswd file
+      ansible.builtin.template:
+        src: htpasswd.j2
+        dest: "{{ _jail_root }}/usr/local/etc/rest-server.htpasswd"
+        owner: root
+        group: wheel
+        mode: "0600"
+      no_log: true
+      notify: Restart rest-server
+
+    - name: Configure rest-server
+      ansible.builtin.template:
+        src: rest-server.rc.j2
+        dest: "{{ _jail_root }}/etc/rc.conf.d/{{ backup_restic_service }}"
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+      notify: Restart rest-server

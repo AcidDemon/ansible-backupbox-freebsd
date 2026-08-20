@@ -1,0 +1,32 @@
+# Managed by Ansible
+# A second sshd, separate from the host's /etc/ssh, which hardening_freebsd owns.
+# Keeping the backup path here decouples it from ssh_hardening, from ssh_2fa (no
+# service-account TOTP problem), and from the at(1) rollback that strips only the
+# 10-hardening and 20-2fa drop-ins.
+Port {{ zrecv_port }}
+PidFile /var/run/sshd-{{ backup_zrecv_user }}.pid
+HostKey /usr/local/etc/ssh-{{ backup_zrecv_user }}/ssh_host_ed25519_key
+
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+PermitEmptyPasswords no
+AllowUsers {{ backup_zrecv_user }}
+AuthorizedKeysFile /usr/local/etc/ssh-{{ backup_zrecv_user }}/authorized_keys
+
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+AllowStreamLocalForwarding no
+PermitTunnel no
+GatewayPorts no
+PermitUserEnvironment no
+UseDNS no
+LoginGraceTime 30
+MaxAuthTries 3
+# A large `zfs send` of highly compressible data can go quiet at the SSH layer
+# for a long time. The host's 300s would cut it off mid-stream.
+ClientAliveInterval 0
+LogLevel VERBOSE

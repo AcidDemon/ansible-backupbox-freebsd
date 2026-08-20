@@ -1,0 +1,101 @@
+---
+# ---------------------------------------------------------------------------
+# Orchestrator vars. This repo is the top layer, so it sets the contract vars
+# for base and hardening too - they are whole-value overrides, never merged.
+# ---------------------------------------------------------------------------
+
+admin_user: acid
+deploy_user: ansible
+admin_email: c.schlueter@acidnetworks.net
+
+target_users:
+  - name: acid
+    home: /home/acid
+
+base_packages: [vim, git, tmux, curl, bash, htop, rsync, jq]
+
+# --- backup box identity -----------------------------------------------------
+backup_pool: backup
+backup_root: /backup
+
+# Each jail gets its own /24 on a routed epair. No shared bridge: jail-to-jail
+# traffic would bypass pf on a bridge, and these jails need no outbound network
+# at all (pkg -j runs the host's pkg against the jail root), so inbound-only is
+# both simpler and stricter.
+jail_subnet: 10.100.0.0/16
+jail_dataset: zroot/jails
+jail_base_version: 15.1-RELEASE
+
+jails:
+  - name: borg
+    id: 1
+    port: 22
+  - name: restic
+    id: 2
+    port: 8000
+  - name: rsync
+    id: 3
+    port: 22
+
+# Host-side zfs recv listener. Its own sshd instance, deliberately not the host's:
+# keeps the backup path clear of ssh_hardening, ssh_2fa and the at(1) rollback.
+zrecv_port: 2222
+
+# --- clients -----------------------------------------------------------------
+# services: which ingest paths this client may use.
+# quota:    hard ZFS quota for that client's datasets.
+# max_age_hours: staleness threshold for the daily report / healthchecks ping.
+# ssh_key:  public key, not a secret. Ping URLs and passwords live in vault.yml.
+# uid:      pinned per client, never derived from list position. Jail users exist
+#           only inside their jail, so the host chowns their data numerically;
+#           a shifting uid would orphan every existing backup.
+# transfer: rsync (rrsync forced command) or sftp (chrooted internal-sftp).
+#           Only read when 'rsync' is in services.
+backup_clients: []
+#  - name: vinokur
+#    uid: 5001
+#    services: [borg, rsync, zrecv]
+#    transfer: rsync
+#    quota: 500G
+#    max_age_hours: 26
+#    ssh_key: "ssh-ed25519 AAAAC3Nza... vinokur"
+
+# --- base_freebsd contract ---------------------------------------------------
+# Tighten to specific tailnet addresses once the node IPs are known. Tailscale
+# ACLs are the real per-client control; pf can only express per-port rules.
+management_cidrs: ["100.64.0.0/10"]
+firewall_service_cidrs: ["100.64.0.0/10"]
+ssh_port: 22
+firewall_allow_tcp: []            # nothing public, ever
+firewall_allow_udp: []
+firewall_allow_tcp_mgmt: ["{{ ssh_port }}"]
+firewall_allow_tcp_svc: [22, 8000, "{{ zrecv_port }}"]
+firewall_trust_iifnames: []       # epairs stay filtered; jails are inbound-only
+firewall_forward_policy: forward  # tailnet -> jail /24s, see jail_host
+firewall_anchors: []
+
+# --- hardening_freebsd contract ----------------------------------------------
+ssh_allow_groups: [sshusers]
+# zfsrecv uses its own sshd instance, so it needs neither of these. Listed as the
+# documented place to put any future host-side service account.
+ssh_allow_group_members:
+  - "{{ admin_user }}"
+  - "{{ deploy_user }}"
+  - "{{ ansible_user | default(deploy_user) }}"
+ssh_2fa_exempt_users: []
+ssh_2fa_exempt_groups: []
+
+# A jail's sshd logs to the jail's own auth.log, invisible to the host watchers.
+# Spelled out rather than derived from `jails`: two entries do not justify a
+# one-line comprehension nobody can read at 3am.
+jail_dataset_mount: /jails
+sshguard_log_paths:
+  - /var/log/auth.log
+  - /jails/borg/var/log/auth.log
+  - /jails/rsync/var/log/auth.log
+crowdsec_acquis_paths:
+  - /jails/borg/var/log/auth.log
+  - /jails/rsync/var/log/auth.log
+
+chkrootkit_enabled: false   # daily filesystem walk, pointless over 4TB of backups
+lynis_enabled: false        # runs inline on every play, costs minutes

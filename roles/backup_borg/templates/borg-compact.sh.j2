@@ -1,0 +1,15 @@
+#!/bin/sh
+# Managed by Ansible
+# Runs on the host, as root, outside the jail. The asymmetry is the point: the
+# client can never prune, the host always can. Neither needs the repo passphrase.
+set -u
+log() { logger -t borg-compact "$*"; echo "[borg-compact] $*"; }
+BORG=/usr/local/bin/borg
+
+for repo in {{ backup_root }}/{{ backup_borg_jail }}/*; do
+    [ -d "$repo" ] || continue
+    name=$(basename "$repo")
+    $BORG prune {{ backup_borg_keep }} "$repo" || log "$name: prune rc=$?"
+    $BORG compact "$repo" || log "$name: compact rc=$?"
+done
+log "done"

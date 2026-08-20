@@ -1,0 +1,12 @@
+---
+backup_snapshots_enabled: true
+# Hourly 48 / daily 30 / monthly 12. Sized so a silent corruption still has a
+# year of monthly restore points behind it. Matters most for rsync and sftp
+# clients: they have no append-only protection and snapshots are all they get.
+#
+# zfsnap encodes the lifetime in the snapshot name and `zfsnap destroy` reaps
+# whatever has expired, so retention needs no state of its own.
+backup_snapshots_policies:
+  - { prefix: hourly, ttl: 2d, minute: "5", hour: "*", day: "*" }
+  - { prefix: daily, ttl: 1m, minute: "15", hour: "1", day: "*" }
+  - { prefix: monthly, ttl: 1y, minute: "25", hour: "2", day: "1" }

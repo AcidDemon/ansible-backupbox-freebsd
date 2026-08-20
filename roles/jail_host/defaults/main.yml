@@ -1,0 +1,29 @@
+---
+jail_host_enabled: true
+
+# FreeBSD's answer to cgroups. RACCT accounting is a loader tunable, so enabling
+# it costs a reboot; rules cannot be applied until then.
+jail_host_racct: true
+
+# ponytail: memoryuse ships as log, switch to deny once rctl -u shows a real
+# working set. The other limits are enforced from day one.
+# Per-jail caps. memoryuse stays on `log` deliberately: rctl deny does not OOM-kill
+# cleanly, it makes allocations fail inside the jail, and borg/restic die untidily
+# under that. Watch `rctl -u jail:borg` for a few weeks, then switch it to deny with
+# a number you have actually seen. The rest are safe to enforce from day one.
+jail_host_rctl:
+  borg:
+    - memoryuse:log=2g
+    - maxproc:deny=200
+    - openfiles:deny=4096
+    - pcpu:deny=50
+  restic:
+    - memoryuse:log=2g
+    - maxproc:deny=100
+    - openfiles:deny=4096
+    - pcpu:deny=50
+  rsync:
+    - memoryuse:log=1g
+    - maxproc:deny=100
+    - openfiles:deny=4096
+    - pcpu:deny=50

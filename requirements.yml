@@ -1,0 +1,10 @@
+---
+collections:
+  - name: community.general
+  - name: ansible.posix
+  - name: git+ssh://git@github.com/AcidDemon/ansible-base-freebsd.git
+    type: git
+    version: v0.2.0
+  - name: git+ssh://git@github.com/AcidDemon/ansible-hardening-freebsd.git
+    type: git
+    version: v0.2.0

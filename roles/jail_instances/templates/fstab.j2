@@ -1,0 +1,8 @@
+# Managed by Ansible
+# Read-only userland shared from the versioned base dataset.
+{% for d in jail_instances_ro_dirs %}
+{{ jail_dataset_mount }}/base-{{ jail_base_version }}/{{ d }}	{{ jail_dataset_mount }}/{{ jail.name }}/{{ d }}	nullfs	ro	0	0
+{% endfor %}
+# The client data. A plain directory from inside the jail: no ZFS interface, so
+# no way to reach or destroy the host's snapshots.
+{{ backup_root }}/{{ jail.name }}	{{ jail_dataset_mount }}/{{ jail.name }}/backups	nullfs	rw	0	0

@@ -1,0 +1,5 @@
+---
+- name: Restart rsync sshd
+  ansible.builtin.command: "jexec {{ backup_rsync_jail }} service sshd restart"
+  changed_when: true
+  failed_when: false   # jail may not be running on first converge

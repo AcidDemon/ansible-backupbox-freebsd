@@ -1,0 +1,5 @@
+---
+# base -> app -> hardening, the order the three collections expect.
+- import_playbook: acidnetworks.base_freebsd.site
+- import_playbook: ../playbooks/backupbox.yml
+- import_playbook: acidnetworks.hardening_freebsd.harden

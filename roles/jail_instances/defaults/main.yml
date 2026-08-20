@@ -1,0 +1,18 @@
+---
+jail_instances_enabled: true
+# Read-only nullfs mounts from the shared base. Everything not listed here is
+# per-jail and writable.
+jail_instances_ro_dirs:
+  - bin
+  - sbin
+  - lib
+  - libexec
+  - rescue
+  - usr/bin
+  - usr/sbin
+  - usr/lib
+  - usr/libexec
+  - usr/share
+  - usr/include
+# devfsrules_jail_vnet from /etc/defaults/devfs.rules
+jail_instances_devfs_ruleset: 5

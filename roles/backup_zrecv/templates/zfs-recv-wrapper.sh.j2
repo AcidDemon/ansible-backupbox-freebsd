@@ -1,0 +1,21 @@
+#!/bin/sh
+# Managed by Ansible
+# Forced command for the zfs recv listener. The client name comes from which key
+# authenticated, never from the client, so a client cannot aim its stream at
+# another client's dataset - or anywhere else in the pool.
+set -eu
+
+client="${1:?no client}"
+target="{{ backup_pool }}/zrecv/${client}"
+
+case "$client" in
+    *[!a-zA-Z0-9_-]*|'') echo "zfs-recv-wrapper: bad client name" >&2; exit 1 ;;
+esac
+
+# SSH_ORIGINAL_COMMAND is logged but never executed: the whole point is that the
+# client does not choose the command.
+logger -t zfs-recv-wrapper "client=${client} requested=${SSH_ORIGINAL_COMMAND:-none}"
+
+# -d recreates the sender's hierarchy under the target and cannot escape it.
+# -u leaves it unmounted. readonly=on is inherited from the parent dataset.
+exec /sbin/zfs receive -d -u "$target"

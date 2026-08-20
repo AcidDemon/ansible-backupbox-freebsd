@@ -1,0 +1,5 @@
+---
+- name: Reload rctl
+  ansible.builtin.command: rctl -f /etc/rctl.conf
+  changed_when: true
+  failed_when: false   # no-op until the RACCT reboot has happened

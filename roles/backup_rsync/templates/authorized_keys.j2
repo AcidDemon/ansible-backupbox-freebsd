@@ -1,0 +1,9 @@
+# Managed by Ansible
+{% if client.transfer | default('rsync') == 'rsync' %}
+# rrsync pins the writable path server-side; -wo makes it write-only, so a
+# compromised client cannot read back what it previously stored.
+command="{{ backup_rsync_rrsync }} -wo /backups/{{ client.name }}",restrict {{ client.ssh_key }}
+{% else %}
+# sftp clients are confined by ChrootDirectory in sshd_config instead.
+restrict,pty {{ client.ssh_key }}
+{% endif %}

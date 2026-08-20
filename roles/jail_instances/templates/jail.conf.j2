@@ -1,0 +1,31 @@
+# Managed by Ansible
+{{ jail.name }} {
+    $id = {{ jail.id }};
+    $gw = "10.100.{{ jail.id }}.1";
+    # The jail side, 10.100.{{ jail.id }}.2, is configured from the jail's own
+    # rc.conf so it survives a restart without jail(8) reaching inside.
+
+    host.hostname = "{{ jail.name }}";
+    path = "{{ jail_dataset_mount }}/{{ jail.name }}";
+
+    # jail(8) performs these mounts on the host side before start, so the jail
+    # itself needs no mount privilege - and is never granted allow.mount.zfs.
+    mount.fstab = "/etc/fstab.{{ jail.name }}";
+    mount.devfs;
+    devfs_ruleset = {{ jail_instances_devfs_ruleset }};
+
+    # Own network stack. A routed epair rather than a shared bridge: bridged
+    # jails can reach each other without host pf ever seeing the packets.
+    vnet;
+    vnet.interface = "epair${id}b";
+
+    # Tolerates an epair left behind by an unclean stop.
+    exec.prestart  = "ifconfig epair${id} > /dev/null 2>&1 || ifconfig epair${id} create";
+    exec.prestart += "ifconfig epair${id}a inet ${gw}/24 up";
+    exec.poststop  = "ifconfig epair${id}a destroy";
+
+    exec.start = "/bin/sh /etc/rc";
+    exec.stop  = "/bin/sh /etc/rc.shutdown";
+    exec.clean;
+    exec.consolelog = "/var/log/jail_${name}_console.log";
+}

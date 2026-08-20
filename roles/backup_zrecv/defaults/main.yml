@@ -1,0 +1,9 @@
+---
+backup_zrecv_enabled: true
+backup_zrecv_user: zfsrecv
+backup_zrecv_uid: 4999
+# Deliberately excludes destroy and rollback. Without rollback, `zfs recv -F`
+# fails, so a client cannot roll a dataset back over a newer snapshot.
+# Alphabetical: that is how `zfs allow` prints them back, and the idempotence
+# check in tasks/main.yml compares the printed line verbatim.
+backup_zrecv_permissions: canmount,create,mount,mountpoint,readonly,receive

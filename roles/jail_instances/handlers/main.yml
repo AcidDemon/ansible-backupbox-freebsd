@@ -1,0 +1,7 @@
+---
+- name: Restart jails
+  # noqa: command-instead-of-module - the service module manages the jail rc
+  # script as a whole; restarting one named jail needs `service jail restart <n>`.
+  ansible.builtin.command: "service jail restart {{ item }}"
+  changed_when: true
+  loop: "{{ jails | map(attribute='name') | list }}"

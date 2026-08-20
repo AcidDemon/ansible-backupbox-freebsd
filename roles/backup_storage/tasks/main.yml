@@ -1,0 +1,45 @@
+---
+- name: Lay out the backup datasets
+  when: backup_storage_enabled | bool
+  block:
+    - name: Set pool-wide properties
+      community.general.zfs:
+        name: "{{ backup_pool }}"
+        state: present
+        extra_zfs_properties: "{{ backup_storage_properties }}"
+
+    - name: Reserve headroom so a full pool can still be emptied
+      community.general.zfs:
+        name: "{{ backup_pool }}/reserve"
+        state: present
+        extra_zfs_properties:
+          refreservation: "{{ backup_storage_reserve }}"
+          canmount: "off"
+
+    - name: Create one dataset per ingest service
+      community.general.zfs:
+        name: "{{ backup_pool }}/{{ item }}"
+        state: present
+      loop: "{{ backup_clients | map(attribute='services') | flatten | unique | sort }}"
+
+    - name: Create one dataset per client per service
+      community.general.zfs:
+        name: "{{ backup_pool }}/{{ item.1 }}/{{ item.0.name }}"
+        state: present
+        extra_zfs_properties:
+          quota: "{{ item.0.quota }}"
+      loop: "{{ backup_clients | subelements('services') }}"
+      loop_control:
+        label: "{{ item.1 }}/{{ item.0.name }}"
+
+    # Single vdev, no redundancy: a scrub detects rot it cannot repair. Worth
+    # knowing about anyway, since the client still holds a good copy.
+    - name: Schedule weekly scrubs
+      community.general.sysrc:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        path: /etc/periodic.conf
+      loop:
+        - { name: daily_scrub_zfs_enable, value: "YES" }
+        - { name: daily_scrub_zfs_pools, value: "{{ backup_pool }}" }
+        - { name: daily_scrub_zfs_default_threshold, value: "{{ backup_storage_scrub_days }}" }

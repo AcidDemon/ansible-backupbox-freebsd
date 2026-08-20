@@ -1,0 +1,140 @@
+---
+- name: Configure the rsync/sftp ingest jail
+  when: backup_rsync_enabled | bool
+  vars:
+    _jail_root: "{{ jail_dataset_mount }}/{{ backup_rsync_jail }}"
+    _client_rows: "{{ backup_clients | selectattr('services', 'contains', 'rsync') | list }}"
+    _clients: "{{ _client_rows | map(attribute='name') | list }}"
+    _sftp_clients: >-
+      {{ _client_rows | selectattr('transfer', 'defined')
+         | selectattr('transfer', 'equalto', 'sftp') | list }}
+    _rsync_clients: "{{ _client_rows | rejectattr('name', 'in', _sftp_clients | map(attribute='name') | list) | list }}"
+  block:
+    - name: Install rsync in the jail
+      community.general.pkgng:
+        name: rsync
+        state: present
+        jail: "{{ backup_rsync_jail }}"
+      when: _rsync_clients | length > 0
+
+    # rrsync is what confines an rsync client to one path. Without it there is no
+    # server-side restriction at all, so fail loudly rather than quietly shipping
+    # an unrestricted forced command.
+    - name: Verify rrsync is present in the jail
+      ansible.builtin.stat:
+        path: "{{ _jail_root }}{{ backup_rsync_rrsync }}"
+      register: _rrsync
+      when: _rsync_clients | length > 0
+
+    - name: Refuse to configure rsync clients without rrsync
+      ansible.builtin.assert:
+        that: _rrsync.stat.exists
+        fail_msg: >-
+          {{ backup_rsync_rrsync }} is missing inside the {{ backup_rsync_jail }} jail.
+          The rsync package did not ship it. Install it there, or set every client's
+          transfer to 'sftp'.
+        quiet: true
+      when: _rsync_clients | length > 0
+
+    - name: Create a jail user per rsync client
+      ansible.builtin.command:
+        argv:
+          - pw
+          - -R
+          - "{{ _jail_root }}"
+          - useradd
+          - "{{ item.name }}"
+          - -u
+          - "{{ item.uid }}"
+          - -d
+          - "/backups/{{ item.name }}"
+          - -s
+          - /usr/sbin/nologin
+          - -c
+          - "rsync client {{ item.name }}"
+      register: _rsync_user
+      changed_when: _rsync_user.rc == 0
+      failed_when: _rsync_user.rc not in [0, 65]
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # sshd refuses a ChrootDirectory that is not root-owned and not writable by
+    # anyone else, so the chroot root stays root:wheel 0755 and the client owns
+    # only the data/ directory below it.
+    - name: Create the sftp chroot roots
+      ansible.builtin.file:
+        path: "{{ backup_root }}/{{ backup_rsync_jail }}/{{ item.name }}"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+      loop: "{{ _sftp_clients }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create the sftp writable subdirectories
+      ansible.builtin.file:
+        path: "{{ backup_root }}/{{ backup_rsync_jail }}/{{ item.name }}/data"
+        state: directory
+        owner: "{{ item.uid }}"
+        group: "{{ item.uid }}"
+        mode: "0700"
+      loop: "{{ _sftp_clients }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create the rsync client directories
+      ansible.builtin.file:
+        path: "{{ backup_root }}/{{ backup_rsync_jail }}/{{ item.name }}"
+        state: directory
+        owner: "{{ item.uid }}"
+        group: "{{ item.uid }}"
+        mode: "0700"
+      loop: "{{ _rsync_clients }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create the client .ssh directories
+      ansible.builtin.file:
+        path: "{{ _jail_root }}/home/{{ item.name }}/.ssh"
+        state: directory
+        owner: "{{ item.uid }}"
+        group: "{{ item.uid }}"
+        mode: "0700"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Kept in /home, not in the client's data directory: an sftp client owns its
+    # data/ tree and must never be able to rewrite its own authorized_keys.
+    - name: Install the per-client authorized_keys
+      ansible.builtin.template:
+        src: authorized_keys.j2
+        dest: "{{ _jail_root }}/home/{{ item.name }}/.ssh/authorized_keys"
+        owner: root
+        group: wheel
+        mode: "0644"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+      vars:
+        client: "{{ item }}"
+      notify: Restart rsync sshd
+
+    - name: Render the jail sshd config
+      ansible.builtin.template:
+        src: sshd_config.j2
+        dest: "{{ _jail_root }}/etc/ssh/sshd_config"
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+      notify: Restart rsync sshd
+
+    - name: Enable sshd in the jail
+      community.general.sysrc:
+        name: sshd_enable
+        value: "YES"
+        path: "{{ _jail_root }}/etc/rc.conf"
+      notify: Restart rsync sshd

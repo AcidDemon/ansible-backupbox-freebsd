@@ -1,0 +1,16 @@
+#!/bin/sh
+# Managed by Ansible
+# Upgrades packages inside each jail. Runs on the host: `pkg -j` uses the host's
+# network and the jail's root, which is why these jails need no outbound access.
+set -u
+log() { logger -t jail-pkg-update "$*"; echo "[jail-pkg-update] $*"; }
+
+for j in {% for jail in jails %}{{ jail.name }} {% endfor %}; do
+    if ! jls -j "$j" jid >/dev/null 2>&1; then
+        log "$j not running, skipped"
+        continue
+    fi
+    env ASSUME_ALWAYS_YES=yes pkg -j "$j" update -q || log "$j: pkg update rc=$?"
+    env ASSUME_ALWAYS_YES=yes pkg -j "$j" upgrade -y || log "$j: pkg upgrade rc=$?"
+done
+log "done (base userland is updated by re-extracting a new jail_base_version)"

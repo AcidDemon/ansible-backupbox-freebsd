@@ -1,0 +1,15 @@
+---
+# Encrypt before committing anything real:
+#   ansible-vault encrypt inventory/group_vars/all/vault.yml
+# and deploy with --vault-password-file.
+#
+# Keyed by client name. Public SSH keys are NOT secrets and live in main.yml.
+
+# healthchecks.io ping URLs, one per client. The box pings <url>/fail when that
+# client's data goes stale.
+vault_healthchecks: {}
+#   vinokur: "https://hc-ping.com/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# restic rest-server credentials, one per client.
+vault_restic_passwords: {}
+#   vinokur: "a long random string"

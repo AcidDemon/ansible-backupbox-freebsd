@@ -1,0 +1,134 @@
+---
+- name: Configure the host-side zfs recv listener
+  when: backup_zrecv_enabled | bool
+  vars:
+    _client_rows: "{{ backup_clients | selectattr('services', 'contains', 'zrecv') | list }}"
+    _etc: "/usr/local/etc/ssh-{{ backup_zrecv_user }}"
+  block:
+    - name: Create the zfsrecv service account
+      ansible.builtin.user:
+        name: "{{ backup_zrecv_user }}"
+        uid: "{{ backup_zrecv_uid }}"
+        home: /nonexistent
+        create_home: false
+        shell: /bin/sh
+        comment: zfs receive listener
+        password: "*"
+
+    - name: Create the zrecv parent dataset
+      community.general.zfs:
+        name: "{{ backup_pool }}/zrecv"
+        state: present
+        extra_zfs_properties:
+          # Inherited by every received dataset: nothing on this box modifies a
+          # received stream after the fact.
+          readonly: "on"
+          canmount: "off"
+
+    - name: Create a receive target per client
+      community.general.zfs:
+        name: "{{ backup_pool }}/zrecv/{{ item.name }}"
+        state: present
+        extra_zfs_properties:
+          quota: "{{ item.quota }}"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # No destroy, no rollback. Without rollback `zfs recv -F` fails, so a client
+    # cannot roll a dataset back over a newer snapshot, and no delegated
+    # permission can reach the host's own snapshots.
+    - name: Read the current ZFS delegations
+      ansible.builtin.command: "zfs allow {{ backup_pool }}/zrecv/{{ item.name }}"
+      register: _zfs_allow_now
+      changed_when: false
+      failed_when: false
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Delegate the minimum ZFS permissions
+      ansible.builtin.command:
+        argv:
+          - zfs
+          - allow
+          - -u
+          - "{{ backup_zrecv_user }}"
+          - "{{ backup_zrecv_permissions }}"
+          - "{{ backup_pool }}/zrecv/{{ item.item.name }}"
+      changed_when: true
+      loop: "{{ _zfs_allow_now.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      # zfs prints delegations alphabetically, and backup_zrecv_permissions is
+      # pinned in that order, so an exact substring match is enough.
+      when: "'user ' ~ backup_zrecv_user ~ ' ' ~ backup_zrecv_permissions not in item.stdout"
+
+    - name: Create the listener config directory
+      ansible.builtin.file:
+        path: "{{ _etc }}"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+
+    - name: Generate a host key for the listener
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -C
+          - "zfsrecv listener"
+          - -f
+          - "{{ _etc }}/ssh_host_ed25519_key"
+        creates: "{{ _etc }}/ssh_host_ed25519_key"
+
+    - name: Install the forced-command wrapper
+      ansible.builtin.template:
+        src: zfs-recv-wrapper.sh.j2
+        dest: /usr/local/sbin/zfs-recv-wrapper
+        owner: root
+        group: wheel
+        mode: "0755"
+
+    - name: Install the listener authorized_keys
+      ansible.builtin.template:
+        src: authorized_keys.j2
+        dest: "{{ _etc }}/authorized_keys"
+        owner: root
+        group: wheel
+        mode: "0644"
+      notify: Restart zfsrecv sshd
+
+    - name: Render the listener sshd config
+      ansible.builtin.template:
+        src: sshd_config.j2
+        dest: "{{ _etc }}/sshd_config"
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Restart zfsrecv sshd
+
+    - name: Install the listener rc script
+      ansible.builtin.copy:
+        src: sshd_zfsrecv
+        dest: /usr/local/etc/rc.d/sshd_zfsrecv
+        owner: root
+        group: wheel
+        mode: "0755"
+      notify: Restart zfsrecv sshd
+
+    - name: Enable the listener
+      community.general.sysrc:
+        name: sshd_zfsrecv_enable
+        value: "YES"
+
+    - name: Ensure the listener is running
+      ansible.builtin.service:
+        name: sshd_zfsrecv
+        state: started

@@ -1,0 +1,13 @@
+---
+backup_monitoring_enabled: true
+# Dropped into periodic's security dir, the same hook hardening_freebsd's aide
+# role uses for 510.aide. `periodic security` runs it and mails the combined
+# output to root, which hardening_misc already aliases to admin_email - so no
+# new cron and no new mail plumbing.
+backup_monitoring_script: /usr/local/etc/periodic/security/520.backup-status
+backup_monitoring_default_max_age_hours: 26
+# ponytail: sampled, not a full verify. Raise or add a periodic full pass if
+# corruption is ever actually observed.
+# Sampled per run, not exhaustive: restic pack files are named after the SHA256
+# of their own contents, so a sample is a real integrity check, cheaply.
+backup_monitoring_restic_sample: 20

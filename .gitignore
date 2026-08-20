@@ -1,0 +1,29 @@
+# Ansible
+*.retry
+.ansible/
+collections/
+ansible_collections/
+
+# Vault / secrets — never commit decrypted secrets or vault passwords
+.vault_pass
+.vault_password
+*.decrypted
+
+# SSH keys — never commit (privates or pubs)
+files/ssh/*
+!files/ssh/.gitkeep
+
+# direnv local overrides
+.envrc.local
+
+# editor / OS cruft
+*.swp
+*~
+.DS_Store
+__pycache__/
+
+# SDD scratch (briefs, review packages, progress ledger)
+/.superpowers/
+
+# Vagrant local state
+.vagrant/

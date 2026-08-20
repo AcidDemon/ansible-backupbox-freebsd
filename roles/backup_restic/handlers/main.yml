@@ -1,0 +1,5 @@
+---
+- name: Restart rest-server
+  ansible.builtin.command: "jexec {{ backup_restic_jail }} service {{ backup_restic_service }} restart"
+  changed_when: true
+  failed_when: false   # jail may not be running on first converge

@@ -1,0 +1,36 @@
+# Managed by Ansible
+# Jail-local sshd, independent of the host's.
+Port 22
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+PermitEmptyPasswords no
+# Out of the client's data tree on purpose: an sftp client owns its data/
+# directory and must never be able to rewrite its own authorized_keys.
+AuthorizedKeysFile /home/%u/.ssh/authorized_keys
+{% if _clients | length > 0 %}
+AllowUsers {{ _clients | join(' ') }}
+{% endif %}
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+AllowStreamLocalForwarding no
+PermitTunnel no
+GatewayPorts no
+PermitUserEnvironment no
+UseDNS no
+LoginGraceTime 30
+MaxAuthTries 3
+ClientAliveInterval 0
+LogLevel VERBOSE
+Subsystem sftp internal-sftp -f AUTHPRIV -l INFO
+{% for c in _sftp_clients %}
+
+# Chroot needs a root-owned, non-writable target, so the client writes into the
+# 'data' subdirectory rather than the chroot root itself.
+Match User {{ c.name }}
+    ChrootDirectory /backups/{{ c.name }}
+    ForceCommand internal-sftp
+{% endfor %}

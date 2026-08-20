@@ -1,0 +1,14 @@
+---
+backup_borg_enabled: true
+backup_borg_jail: borg
+# Pinned so a python default bump does not silently change the package.
+backup_borg_package: py311-borgbackup
+# ponytail: one retention for every client. Move to per-client if one of them
+# ever needs a different window.
+# Host-side compaction. Append-only repos never shrink on their own, and the
+# client is deliberately unable to prune, so the host must.
+backup_borg_keep: "--keep-daily=30 --keep-monthly=12"
+backup_borg_compact_cron:
+  minute: "0"
+  hour: "3"
+  weekday: "0"

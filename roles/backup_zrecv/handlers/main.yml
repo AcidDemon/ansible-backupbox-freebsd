@@ -1,0 +1,5 @@
+---
+- name: Restart zfsrecv sshd
+  ansible.builtin.service:
+    name: sshd_zfsrecv
+    state: restarted

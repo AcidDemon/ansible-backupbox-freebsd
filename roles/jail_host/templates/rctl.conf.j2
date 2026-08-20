@@ -1,0 +1,8 @@
+# Managed by Ansible
+# rctl covers CPU, memory, processes and I/O. It does NOT cover disk space -
+# that is the per-client ZFS quota in backup_storage.
+{% for jail, rules in jail_host_rctl.items() %}
+{% for rule in rules %}
+jail:{{ jail }}:{{ rule }}
+{% endfor %}
+{% endfor %}

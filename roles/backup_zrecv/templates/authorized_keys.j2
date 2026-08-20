@@ -1,0 +1,4 @@
+# Managed by Ansible
+{% for c in _client_rows %}
+command="/usr/local/sbin/zfs-recv-wrapper {{ c.name }}",restrict {{ c.ssh_key }}
+{% endfor %}

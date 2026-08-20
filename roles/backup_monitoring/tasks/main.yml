@@ -1,0 +1,27 @@
+---
+- name: Report on backup health
+  when: backup_monitoring_enabled | bool
+  block:
+    - name: Ensure the periodic security drop-in dir exists
+      ansible.builtin.file:
+        path: "{{ backup_monitoring_script | dirname }}"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+
+    - name: Install the backup status check
+      ansible.builtin.template:
+        src: 520.backup-status.j2
+        dest: "{{ backup_monitoring_script }}"
+        owner: root
+        group: wheel
+        mode: "0755"
+        validate: "/bin/sh -n %s"
+      no_log: true   # healthchecks ping URLs are vaulted
+
+    - name: Ensure periodic security reporting is on
+      community.general.sysrc:
+        name: daily_status_security_enable
+        value: "YES"
+        path: /etc/periodic.conf

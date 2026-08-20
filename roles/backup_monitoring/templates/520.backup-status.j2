@@ -1,0 +1,83 @@
+#!/bin/sh
+# Managed by Ansible
+#
+# What this box can check without any client's keys: that data is arriving, and
+# that what is on disk is intact. Whether a backup actually RESTORES is the
+# client's job - only the client can decrypt it. Neither check substitutes for
+# the other.
+#
+# Note this runs on the inner system. If the box is sitting in the outer base
+# awaiting unlock.sh, it does not run at all, which is exactly why the primary
+# staleness alarm is client-side healthchecks.io pings, not this script.
+
+set -u
+rc=0
+now=$(date +%s)
+
+# Newest snapshot that actually recorded new data. zfsnap keeps snapshotting on
+# schedule whether or not the client wrote anything, so plain snapshot age would
+# never look stale - it would always be under an hour old and always pass.
+# `written` is the space a snapshot holds that its predecessor did not.
+last_change() {
+    zfs list -H -p -t snapshot -o creation,written -S creation -r "$1" 2>/dev/null |
+        awk '$2 > 0 { print $1; exit }'
+}
+
+echo "== zpool status =="
+zpool status -x {{ backup_pool }}
+
+echo
+echo "== per-client freshness =="
+{% for c in backup_clients %}
+{% for svc in c.services %}
+ds="{{ backup_pool }}/{{ svc }}/{{ c.name }}"
+max_age={{ (c.max_age_hours | default(backup_monitoring_default_max_age_hours)) * 3600 }}
+created=$(last_change "$ds")
+if [ -z "$created" ]; then
+    echo "MISSING  $ds: no snapshot has ever recorded data"
+    rc=1
+else
+    age=$(( now - created ))
+    if [ "$age" -gt "$max_age" ]; then
+        printf 'STALE    %s: %sh old (limit %sh)\n' "$ds" "$(( age / 3600 ))" "$(( max_age / 3600 ))"
+        rc=1
+{% if c.name in (vault_healthchecks | default({})) %}
+        fetch -qo /dev/null "{{ vault_healthchecks[c.name] }}/fail" 2>/dev/null || true
+{% endif %}
+    else
+        printf 'ok       %s: %sh old\n' "$ds" "$(( age / 3600 ))"
+    fi
+fi
+{% endfor %}
+{% endfor %}
+
+echo
+echo "== borg repository integrity =="
+# --repository-only checks segment integrity without the repo passphrase, which
+# the host does not have and should not have.
+for repo in {{ backup_root }}/borg/*; do
+    [ -d "$repo" ] || continue
+    if /usr/local/bin/borg check --repository-only "$repo" 2>&1; then
+        echo "ok       $repo"
+    else
+        echo "FAILED   $repo"
+        rc=1
+    fi
+done
+
+echo
+echo "== restic pack integrity (sample of {{ backup_monitoring_restic_sample }}) =="
+# Every restic pack file is named after the SHA256 of its own contents, so this
+# verifies real integrity with no repository password involved.
+for repo in {{ backup_root }}/restic/*; do
+    [ -d "$repo/data" ] || continue
+    bad=0
+    for f in $(find "$repo/data" -type f | head -n {{ backup_monitoring_restic_sample }}); do
+        want=$(basename "$f")
+        got=$(sha256 -q "$f")
+        [ "$want" = "$got" ] || { echo "CORRUPT  $f"; bad=1; rc=1; }
+    done
+    [ "$bad" -eq 0 ] && echo "ok       $repo"
+done
+
+exit $rc

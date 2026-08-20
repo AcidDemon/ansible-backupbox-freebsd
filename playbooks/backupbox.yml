@@ -1,0 +1,62 @@
+---
+# App layer. Runs between acidnetworks.base_freebsd.site and
+# acidnetworks.hardening_freebsd.harden. `collections:` scopes the short role names
+# so they resolve whether installed as a collection or run from roles/.
+- name: Configure the FreeBSD backup target
+  hosts: backup_hosts
+  become: true
+  gather_facts: true
+  collections:
+    - acidnetworks.backupbox
+
+  pre_tasks:
+    - name: Refuse to run on anything but FreeBSD
+      ansible.builtin.assert:
+        that: ansible_facts.system == 'FreeBSD'
+        fail_msg: "This collection targets FreeBSD only."
+        quiet: true
+      tags: [always]
+
+    # erebus boots into a small unencrypted UFS "outer" system that also runs sshd on
+    # the same address. Landing there and creating datasets would be a bad afternoon.
+    - name: Detect the backup pool
+      ansible.builtin.command: zpool list -H -o name {{ backup_pool }}
+      register: _backup_pool
+      changed_when: false
+      failed_when: false
+      tags: [always]
+
+    - name: Refuse to run against the outer base (backup pool not imported)
+      ansible.builtin.assert:
+        that: _backup_pool.rc == 0
+        fail_msg: >-
+          zpool '{{ backup_pool }}' is not imported. This host is almost certainly
+          sitting in the unencrypted outer base awaiting unlock.sh, not the inner
+          system. Unlock it and re-run.
+        quiet: true
+      tags: [always]
+
+    - name: Refuse duplicate or missing client uids
+      ansible.builtin.assert:
+        that:
+          - backup_clients | map(attribute='uid') | list | length == backup_clients | length
+          - backup_clients | map(attribute='uid') | unique | list | length == backup_clients | length
+        fail_msg: >-
+          Every entry in backup_clients needs a unique, pinned uid. The host chowns
+          jail-owned data numerically, so a duplicate or shifting uid hands one
+          client access to another's backups.
+        quiet: true
+      tags: [always]
+
+  roles:
+    - backup_network
+    - backup_storage
+    - jail_host
+    - jail_base
+    - jail_instances
+    - backup_borg
+    - backup_restic
+    - backup_rsync
+    - backup_zrecv
+    - backup_snapshots
+    - backup_monitoring

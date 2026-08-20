@@ -1,0 +1,31 @@
+---
+- name: Schedule host-owned snapshots
+  when: backup_snapshots_enabled | bool
+  block:
+    - name: Install zfsnap
+      community.general.pkgng:
+        name: zfsnap2
+        state: present
+
+    # Taken by the host, on the host's schedule. No jail has a ZFS interface at
+    # all - the data reaches them through nullfs as a plain directory - so a
+    # client that deletes its own archives cannot touch these.
+    - name: Schedule the snapshot policies
+      ansible.builtin.cron:
+        name: "zfsnap-{{ item.prefix }}"
+        user: root
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day }}"
+        job: "/usr/local/sbin/zfsnap snapshot -r -p {{ item.prefix }}- -a {{ item.ttl }} {{ backup_pool }}"
+      loop: "{{ backup_snapshots_policies }}"
+      loop_control:
+        label: "{{ item.prefix }}"
+
+    - name: Schedule the expiry sweep
+      ansible.builtin.cron:
+        name: zfsnap-destroy
+        user: root
+        minute: "45"
+        hour: "*"
+        job: "/usr/local/sbin/zfsnap destroy -r {{ backup_pool }}"

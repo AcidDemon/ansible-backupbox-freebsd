@@ -1,0 +1,5 @@
+---
+- name: Restart borg sshd
+  ansible.builtin.command: "jexec {{ backup_borg_jail }} service sshd restart"
+  changed_when: true
+  failed_when: false   # jail may not be running on first converge

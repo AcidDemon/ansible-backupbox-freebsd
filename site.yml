@@ -1,0 +1,4 @@
+---
+# Dev-only entrypoint, build_ignored. The real play lives in playbooks/backupbox.yml
+# so it can ship as acidnetworks.backupbox.backupbox.
+- import_playbook: playbooks/backupbox.yml

@@ -1,0 +1,141 @@
+---
+- name: Create the jails
+  when: jail_instances_enabled | bool
+  block:
+    - name: Ensure jail.conf.d exists
+      ansible.builtin.file:
+        path: /etc/jail.conf.d
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+
+    - name: Create a dataset per jail
+      community.general.zfs:
+        name: "{{ jail_dataset }}/{{ item.name }}"
+        state: present
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create the read-only mountpoints
+      ansible.builtin.file:
+        path: "{{ jail_dataset_mount }}/{{ item.0.name }}/{{ item.1 }}"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+      loop: "{{ jails | product(jail_instances_ro_dirs) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}/{{ item.1 }}"
+
+    - name: Create the writable directories
+      ansible.builtin.file:
+        path: "{{ jail_dataset_mount }}/{{ item.0.name }}/{{ item.1 }}"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "{{ '1777' if item.1 == 'tmp' else '0755' }}"
+      loop: "{{ jails | product(['dev', 'usr/local', 'backups', 'tmp']) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}/{{ item.1 }}"
+
+    # Seeded once from the base, then owned by the jail. Extracting a new
+    # jail_base_version deliberately does not touch these.
+    - name: Seed the per-jail writable trees from the base
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ jail_dataset_mount }}/base-{{ jail_base_version }}/{{ item.1 }}"
+          - "{{ jail_dataset_mount }}/{{ item.0.name }}/{{ item.1 }}"
+        creates: "{{ jail_dataset_mount }}/{{ item.0.name }}/{{ item.1 }}"
+      loop: "{{ jails | product(['etc', 'var', 'root']) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}/{{ item.1 }}"
+
+    - name: Render the per-jail fstab
+      ansible.builtin.template:
+        src: fstab.j2
+        dest: "/etc/fstab.{{ item.name }}"
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+      vars:
+        jail: "{{ item }}"
+      notify: Restart jails
+
+    - name: Render the per-jail jail.conf.d fragment
+      ansible.builtin.template:
+        src: jail.conf.j2
+        dest: "/etc/jail.conf.d/{{ item.name }}.conf"
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+      vars:
+        jail: "{{ item }}"
+      notify: Restart jails
+
+    # The jail needs a default route so replies reach tailnet clients. It still
+    # cannot initiate outbound: pf has no pass rule for traffic arriving on the
+    # epair, only floating state created by the inbound connection.
+    - name: Configure the jail interface
+      community.general.sysrc:
+        name: "ifconfig_epair{{ item.id }}b"
+        value: "inet 10.100.{{ item.id }}.2/24"
+        path: "{{ jail_dataset_mount }}/{{ item.name }}/etc/rc.conf"
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+      notify: Restart jails
+
+    - name: Configure the jail default route
+      community.general.sysrc:
+        name: defaultrouter
+        value: "10.100.{{ item.id }}.1"
+        path: "{{ jail_dataset_mount }}/{{ item.name }}/etc/rc.conf"
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+      notify: Restart jails
+
+    - name: Quiet the jail syslogd and MTA
+      community.general.sysrc:
+        name: "{{ item.1.name }}"
+        value: "{{ item.1.value }}"
+        path: "{{ jail_dataset_mount }}/{{ item.0.name }}/etc/rc.conf"
+      loop: >-
+        {{ jails | product([
+             {'name': 'syslogd_flags', 'value': '-ss'},
+             {'name': 'sendmail_enable', 'value': 'NONE'},
+             {'name': 'cron_enable', 'value': 'NO'}
+           ]) | list }}
+      loop_control:
+        label: "{{ item.0.name }}: {{ item.1.name }}"
+      notify: Restart jails
+
+    - name: Check which jails are running
+      ansible.builtin.command: "jls -j {{ item.name }} jid"
+      register: _jls
+      changed_when: false
+      failed_when: false
+      loop: "{{ jails }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Start the jails that are not running
+      # noqa: command-instead-of-module - starts one named jail, not the rc script.
+      ansible.builtin.command: "service jail start {{ item.item.name }}"
+      changed_when: true
+      loop: "{{ _jls.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.rc != 0

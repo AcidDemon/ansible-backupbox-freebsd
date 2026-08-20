@@ -1,0 +1,14 @@
+---
+backup_storage_enabled: true
+# Backups are already-compressed, content-addressed chunks in large files.
+backup_storage_properties:
+  compression: zstd
+  atime: "off"
+  dedup: "off"
+  recordsize: 1M
+  # Keeps .zfs out of reach through the nullfs mount into a jail.
+  snapdir: hidden
+# ZFS needs free space to free space. A small reservation guarantees you can
+# always delete your way out of a full pool.
+backup_storage_reserve: 2G
+backup_storage_scrub_days: 7

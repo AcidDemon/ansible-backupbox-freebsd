@@ -1,0 +1,40 @@
+namespace: acidnetworks
+name: backupbox
+version: 0.1.0
+readme: README.md
+authors:
+  - AcidDemon
+description: >-
+  FreeBSD backup target: VNET jails per ingest protocol (borg, restic, rsync/sftp),
+  host-side zfs recv, RCTL resource caps, and host-owned ZFS snapshots a compromised
+  client cannot destroy.
+license_file: LICENSE
+tags:
+  - freebsd
+  - backup
+  - borg
+  - restic
+  - zfs
+  - jails
+dependencies:
+  community.general: "*"
+  ansible.posix: "*"
+repository: https://github.com/AcidDemon/freebsd-backupbox
+issues: https://github.com/AcidDemon/freebsd-backupbox/issues
+# Ship roles and playbooks only. Everything else is orchestrator-local, especially
+# files/ (committed deploy keys) and inventory/ (vault).
+build_ignore:
+  - .vagrant
+  - .ansible
+  - .envrc
+  - .git
+  - .github
+  - .gitignore
+  - .yamllint
+  - ansible.cfg
+  - files
+  - inventory
+  - requirements.yml
+  - site.yml
+  - tests
+  - Vagrantfile

@@ -1,0 +1,116 @@
+---
+- name: Configure the borg ingest jail
+  when: backup_borg_enabled | bool
+  vars:
+    _jail_root: "{{ jail_dataset_mount }}/{{ backup_borg_jail }}"
+    _client_rows: "{{ backup_clients | selectattr('services', 'contains', 'borg') | list }}"
+    _clients: "{{ _client_rows | map(attribute='name') | list }}"
+  block:
+    - name: Install borg in the jail
+      community.general.pkgng:
+        name: "{{ backup_borg_package }}"
+        state: present
+        jail: "{{ backup_borg_jail }}"
+
+    # The host needs it too: compaction runs outside the jail.
+    - name: Install borg on the host
+      community.general.pkgng:
+        name: "{{ backup_borg_package }}"
+        state: present
+
+    - name: Create a jail user per borg client
+      ansible.builtin.command:
+        argv:
+          - pw
+          - -R
+          - "{{ _jail_root }}"
+          - useradd
+          - "{{ item.name }}"
+          - -u
+          - "{{ item.uid }}"
+          - -d
+          - "/backups/{{ item.name }}"
+          - -s
+          - /usr/sbin/nologin
+          - -c
+          - "borg client {{ item.name }}"
+      register: _borg_user
+      changed_when: _borg_user.rc == 0
+      failed_when: _borg_user.rc not in [0, 65]   # 65 = already exists
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Numeric, not by name: these users exist only inside the jail, so the host
+    # cannot resolve them. Client uids are pinned in inventory for that reason.
+    - name: Own the client repo directories
+      ansible.builtin.file:
+        path: "{{ backup_root }}/{{ backup_borg_jail }}/{{ item.name }}"
+        state: directory
+        owner: "{{ item.uid }}"
+        group: "{{ item.uid }}"
+        mode: "0700"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Outside the client's repo directory: that tree is writable by the client,
+    # and an authorized_keys a client can rewrite is not a restriction.
+    - name: Create the client .ssh directories
+      ansible.builtin.file:
+        path: "{{ _jail_root }}/home/{{ item.name }}/.ssh"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Install the per-client authorized_keys
+      ansible.builtin.template:
+        src: authorized_keys.j2
+        dest: "{{ _jail_root }}/home/{{ item.name }}/.ssh/authorized_keys"
+        owner: root
+        group: wheel
+        mode: "0644"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+      vars:
+        client: "{{ item }}"
+      notify: Restart borg sshd
+
+    - name: Render the jail sshd config
+      ansible.builtin.template:
+        src: sshd_config.j2
+        dest: "{{ _jail_root }}/etc/ssh/sshd_config"
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+      notify: Restart borg sshd
+
+    - name: Enable sshd in the jail
+      community.general.sysrc:
+        name: sshd_enable
+        value: "YES"
+        path: "{{ _jail_root }}/etc/rc.conf"
+      notify: Restart borg sshd
+
+    - name: Install the host-side compaction script
+      ansible.builtin.template:
+        src: borg-compact.sh.j2
+        dest: /usr/local/sbin/borg-compact
+        owner: root
+        group: wheel
+        mode: "0750"
+
+    - name: Schedule host-side compaction
+      ansible.builtin.cron:
+        name: borg-compact
+        user: root
+        minute: "{{ backup_borg_compact_cron.minute }}"
+        hour: "{{ backup_borg_compact_cron.hour }}"
+        weekday: "{{ backup_borg_compact_cron.weekday }}"
+        job: /usr/local/sbin/borg-compact

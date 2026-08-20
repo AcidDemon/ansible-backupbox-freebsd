@@ -1,0 +1,4 @@
+---
+backup_rsync_enabled: true
+backup_rsync_jail: rsync
+backup_rsync_rrsync: /usr/local/bin/rrsync
