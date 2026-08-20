@@ -50,9 +50,11 @@ they are.
 ## Isolation
 
     jls -N                                   # three jails, distinct epairs
-    jexec borg zfs list                      # must fail: no ZFS in the jail
-    jexec borg ls /backups/../               # must not reach another jail
-    ls /backup/borg/<client>/.zfs            # must not exist (snapdir=hidden)
+    jexec borg zfs list                      # "no datasets available"
+    jexec borg ls -a /backups/<client>       # no .zfs entry (snapdir=hidden)
+    jexec borg ls /backups/<client>/.zfs/snapshot          # names ARE listable
+    jexec borg ls /backups/<client>/.zfs/snapshot/<snap>   # Operation not permitted
+    jexec borg rm -rf /backups/<client>/.zfs/snapshot/<snap>  # Operation not permitted
 
 ## Snapshot ownership
 
@@ -114,6 +116,10 @@ nullfs mount of the client dataset; setting owner or mode on either writes
 straight through onto the mounted filesystem and fights whichever role
 legitimately owns it, so both are created as bare mountpoints.
 
+Expect every client to report MISSING until the first zfsnap cron fires: the
+freshness check deliberately looks for a snapshot that recorded data, not merely
+for a snapshot, so a box with no snapshots yet has nothing to measure.
+
 ## Verified on the VM
 
 Everything below was run end to end on FreeBSD 14.3, not just inspected:
@@ -130,6 +136,7 @@ Everything below was run end to end on FreeBSD 14.3, not just inspected:
 | `zfs send` into the listener | lands under `backup/zrecv/<client>/` |
 | client-chosen recv target | ignored; forced command's target used |
 | `zfs destroy` of a snapshot from a jail | `dataset does not exist` |
+| reading or removing a snapshot via `.zfs` from a jail | `Operation not permitted` |
 | recovery from `.zfs/snapshot/...` after client wipes everything | full |
 | host `borg compact` | reclaims (17 segments to 3) |
 | host `borg prune` | impossible: needs the client's passphrase |

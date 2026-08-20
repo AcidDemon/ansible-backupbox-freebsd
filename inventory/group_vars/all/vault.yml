@@ -13,3 +13,8 @@ vault_healthchecks: {}
 # restic rest-server credentials, one per client.
 vault_restic_passwords: {}
 #   vinokur: "a long random string"
+
+# SMTP relay credentials for msmtp. Without these the box can generate every
+# report correctly and deliver none of them.
+vault_smtp_user: ""
+vault_smtp_password: ""

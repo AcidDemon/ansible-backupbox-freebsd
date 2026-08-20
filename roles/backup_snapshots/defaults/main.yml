@@ -1,12 +1,27 @@
 ---
 backup_snapshots_enabled: true
+
 # Hourly 48 / daily 30 / monthly 12. Sized so a silent corruption still has a
 # year of monthly restore points behind it. Matters most for rsync and sftp
 # clients: they have no append-only protection and snapshots are all they get.
 #
-# zfsnap encodes the lifetime in the snapshot name and `zfsnap destroy` reaps
-# whatever has expired, so retention needs no state of its own.
-backup_snapshots_policies:
-  - { prefix: hourly, ttl: 2d, minute: "5", hour: "*", day: "*" }
-  - { prefix: daily, ttl: 1m, minute: "15", hour: "1", day: "*" }
-  - { prefix: monthly, ttl: 1y, minute: "25", hour: "2", day: "1" }
+# sanoid counts snapshots rather than expiring them on a TTL, so a missed cron
+# run costs one snapshot instead of shortening the whole retention window.
+backup_snapshots_retention:
+  hourly: 48
+  daily: 30
+  monthly: 12
+  yearly: 0
+  frequently: 0
+
+# Only the client data. Deliberately excludes backup/reserve, which exists just
+# to hold refreservation, and any jail roots that happen to live on this pool.
+backup_snapshots_datasets:
+  - borg
+  - restic
+  - rsync
+  - zrecv
+
+# sanoid decides internally whether a snapshot is due, so running more often
+# than the finest granularity is free and covers a missed slot.
+backup_snapshots_cron_minute: "*/15"

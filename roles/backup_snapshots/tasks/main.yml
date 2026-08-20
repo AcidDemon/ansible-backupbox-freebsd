@@ -2,30 +2,49 @@
 - name: Schedule host-owned snapshots
   when: backup_snapshots_enabled | bool
   block:
-    - name: Install zfsnap
+    - name: Install sanoid
       community.general.pkgng:
-        name: zfsnap2
+        name: sanoid
         state: present
 
-    # Taken by the host, on the host's schedule. No jail has a ZFS interface at
-    # all - the data reaches them through nullfs as a plain directory - so a
-    # client that deletes its own archives cannot touch these.
-    - name: Schedule the snapshot policies
-      ansible.builtin.cron:
-        name: "zfsnap-{{ item.prefix }}"
-        user: root
-        minute: "{{ item.minute }}"
-        hour: "{{ item.hour }}"
-        day: "{{ item.day }}"
-        job: "/usr/local/sbin/zfsnap snapshot -r -p {{ item.prefix }}- -a {{ item.ttl }} {{ backup_pool }}"
-      loop: "{{ backup_snapshots_policies }}"
-      loop_control:
-        label: "{{ item.prefix }}"
+    - name: Ensure the sanoid config directory exists
+      ansible.builtin.file:
+        path: /usr/local/etc/sanoid
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
 
-    - name: Schedule the expiry sweep
+    - name: Render sanoid.conf
+      ansible.builtin.template:
+        src: sanoid.conf.j2
+        dest: /usr/local/etc/sanoid/sanoid.conf
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+
+    # --cron takes and prunes in one pass and decides internally what is due.
+    # --quiet keeps the run silent unless something actually failed, which
+    # matters because cron mails stdout and this runs four times an hour.
+    - name: Schedule sanoid
       ansible.builtin.cron:
-        name: zfsnap-destroy
+        name: sanoid
         user: root
-        minute: "45"
-        hour: "*"
-        job: "/usr/local/sbin/zfsnap destroy -r {{ backup_pool }}"
+        minute: "{{ backup_snapshots_cron_minute }}"
+        job: "/usr/local/bin/sanoid --cron --quiet"
+
+    # Left over from the zfsnap era. Removing the jobs stops new TTL-named
+    # snapshots appearing; any that already exist are not destroyed here,
+    # because silently deleting snapshots is exactly what this box exists to
+    # prevent. Remove them by hand once you have looked at them.
+    - name: Remove the superseded zfsnap cron jobs
+      ansible.builtin.cron:
+        name: "{{ item }}"
+        user: root
+        state: absent
+      loop:
+        - zfsnap-hourly
+        - zfsnap-daily
+        - zfsnap-monthly
+        - zfsnap-destroy

@@ -1,0 +1,22 @@
+# Managed by Ansible
+#
+# Host-owned snapshots. Taken by the host, on the host's schedule. No jail has a
+# ZFS interface at all - the data reaches them through nullfs as a plain
+# directory - so a client that deletes its own archives cannot touch these.
+#
+# recursive = yes applies the policy per child dataset rather than as one
+# `zfs snapshot -r`, so each client gets its own retention and one noisy client
+# cannot age out another's snapshots.
+
+{% for ds in backup_snapshots_datasets %}
+[{{ backup_pool }}/{{ ds }}]
+    use_template = client
+    recursive = yes
+
+{% endfor %}
+[template_client]
+{% for k, v in backup_snapshots_retention.items() %}
+    {{ k }} = {{ v }}
+{% endfor %}
+    autosnap = yes
+    autoprune = yes

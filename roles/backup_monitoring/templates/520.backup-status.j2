@@ -44,7 +44,7 @@ ds="{{ backup_pool }}/{{ svc }}/{{ c.name }}"
 max_age={{ (c.max_age_hours | default(backup_monitoring_default_max_age_hours)) * 3600 }}
 created=$(last_change "$ds")
 if [ -z "$created" ]; then
-    echo "MISSING  $ds: no snapshot has ever recorded data"
+    echo "MISSING  $ds: no snapshot has ever recorded data (expected until the first zfsnap run)"
     rc=1
 else
     age=$(( now - created ))

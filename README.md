@@ -41,8 +41,16 @@ passphrase and these repos are encrypted client-side. Retention is the client's
 call; reclaiming the space is the host's.
 
 **Host-owned snapshots.** No jail is ever delegated a ZFS dataset. Backup data
-reaches a jail through a nullfs mount, as a plain directory, with `snapdir=hidden`
-so `.zfs` is not reachable either. Snapshots are taken and expired by the host on
+reaches a jail through a nullfs mount, as a plain directory.
+
+`snapdir=hidden` keeps `.zfs` out of directory listings, but be accurate about
+what that does and does not do: the snapshot directory is still reachable by
+explicit path, so a process in the jail can enumerate snapshot *names*. It cannot
+read their contents and it cannot remove them. Verified on the VM: listing
+`.zfs/snapshot` returns the names, reading a snapshot returns "Operation not
+permitted", and both `zfs destroy` and `rm -rf` against it are refused while the
+snapshot survives. The guarantee comes from the jail having no ZFS ioctl at all,
+not from hiding the directory. Snapshots are taken and expired by the host on
 a schedule the jails cannot see. rsync and sftp clients have no append-only
 protection at all, so for them this is the only line of defence - which is why
 retention runs to a year.

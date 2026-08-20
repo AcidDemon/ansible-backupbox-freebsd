@@ -8,6 +8,24 @@ admin_user: acid
 deploy_user: ansible
 admin_email: c.schlueter@acidnetworks.net
 
+# Everything the box has to tell you goes to admin_email: the periodic daily,
+# weekly, monthly and security runs (which carry 520.backup-status, aide, pkg
+# audit and the ZFS scrub result), the daily security posture report, and the
+# stdout of every root cron job, meaning borg-compact, jail-pkg-update,
+# freebsd-auto-update and zfsnap.
+#
+# Relaying through msmtp rather than leaving it to dma(8). dma would attempt
+# direct SMTP from the VPS with no smarthost, so the mail is generated, refused
+# or silently binned, and the box looks healthy while telling you nothing.
+hardening_misc_msmtp: true
+# The MX for acidnetworks.net. Verified reachable: 587 open, Haraka banner,
+# STARTTLS advertised, which is what msmtprc's tls_starttls expects.
+smtp_host: hydrus.uberspace.de
+smtp_port: 587
+# Must be a domain configured on the Uberspace account, or the relay refuses the
+# envelope sender and every report is generated and dropped.
+smtp_from: erebus@acidnetworks.net
+
 target_users:
   - name: acid
     home: /home/acid
