@@ -14,13 +14,19 @@ backup_snapshots_retention:
   yearly: 0
   frequently: 0
 
-# Only the client data. Deliberately excludes backup/reserve, which exists just
-# to hold refreservation, and any jail roots that happen to live on this pool.
-backup_snapshots_datasets:
-  - borg
-  - restic
-  - rsync
-  - zrecv
+# Derived, not listed. backup_storage creates a dataset per service that some
+# client actually uses, so a hardcoded list names datasets that may not exist,
+# and sanoid complains about each one every 15 minutes. This is the same
+# expression backup_storage loops over, so the two cannot drift apart.
+#
+# Only the client data either way: backup/reserve exists just to hold
+# refreservation, and jail roots that happen to live on this pool are not
+# client data. Neither can appear in a client's services list.
+#
+# With no clients at all this renders a sanoid.conf holding only the template,
+# which is a no-op rather than an error - and still better than four sections
+# pointing at nothing.
+backup_snapshots_datasets: "{{ backup_clients | map(attribute='services') | flatten | unique | sort }}"
 
 # sanoid decides internally whether a snapshot is due, so running more often
 # than the finest granularity is free and covers a missed slot.
