@@ -33,6 +33,22 @@ last_change() {
         awk '$2 > 0 { print $1; exit }'
 }
 
+# A dataset nobody has ever written to is not "fresh", however new its
+# snapshots are. The first snapshot of an empty dataset reports `written`
+# equal to everything it references - there is no predecessor to diff against
+# - so an empty filesystem's own metadata, about 96K, satisfies `written > 0`
+# and reads as data having arrived. Every later snapshot correctly reports 0,
+# so that first one stays the newest match and the client shows ok for a full
+# max_age before it ever goes stale.
+#
+# Real ingest is orders of magnitude past this floor: borg and restic both
+# write a manifest and at least one segment on any backup at all.
+has_data() {
+    used=$(zfs get -Hp -o value used "$1" 2>/dev/null)
+    case "$used" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$used" -ge {{ backup_monitoring_empty_bytes }} ]
+}
+
 echo "== zpool status =="
 zpool status -x {{ backup_pool }}
 
@@ -43,7 +59,10 @@ echo "== per-client freshness =="
 ds="{{ backup_pool }}/{{ svc }}/{{ c.name }}"
 max_age={{ (c.max_age_hours | default(backup_monitoring_default_max_age_hours)) * 3600 }}
 created=$(last_change "$ds")
-if [ -z "$created" ]; then
+if ! has_data "$ds"; then
+    echo "MISSING  $ds: dataset is empty, no backup has ever arrived"
+    rc=1
+elif [ -z "$created" ]; then
     echo "MISSING  $ds: no snapshot has ever recorded data (expected until the first sanoid run)"
     rc=1
 else

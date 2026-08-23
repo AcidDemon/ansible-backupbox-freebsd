@@ -9,6 +9,13 @@ backup_monitoring_enabled: true
 # new cron and no new mail plumbing.
 backup_monitoring_script: /usr/local/etc/periodic/security/520.backup-status
 backup_monitoring_default_max_age_hours: 26
+
+# Below this, a client dataset is treated as never having received a backup.
+# An empty ZFS filesystem reports about 96K of its own metadata as `used`, and
+# the first snapshot of one reports that same figure as `written`, which is
+# enough to look like data arrived. 1 MiB clears the empty case by an order of
+# magnitude and sits far below any real borg or restic write.
+backup_monitoring_empty_bytes: 1048576
 # ponytail: sampled, not a full verify. Raise or add a periodic full pass if
 # corruption is ever actually observed.
 # Sampled per run, not exhaustive: restic pack files are named after the SHA256
