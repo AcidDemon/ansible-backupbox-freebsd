@@ -2,9 +2,12 @@
 collections:
   - name: community.general
   - name: ansible.posix
-  - name: git+ssh://git@github.com/AcidDemon/ansible-base-freebsd.git
+  # https, not git+ssh. Both repos are public, so this needs no credentials and
+  # no agent, and it sidesteps hosts where ssh refuses to read its own config
+  # (a NixOS store owned by nobody:nogroup fails every clone before auth).
+  - name: git+https://github.com/AcidDemon/ansible-base-freebsd.git
     type: git
     version: v0.2.2
-  - name: git+ssh://git@github.com/AcidDemon/ansible-hardening-freebsd.git
+  - name: git+https://github.com/AcidDemon/ansible-hardening-freebsd.git
     type: git
     version: v0.2.3

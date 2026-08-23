@@ -65,16 +65,16 @@ the target dataset from which key authenticated, and a delegation that excludes
 
 | Role | What it does |
 |---|---|
-| `backup_network` | Tailscale, jail subnet advertisement, IPv4 forwarding |
+| `backup_network` | Tailscale, jail subnet advertisement |
 | `backup_storage` | Dataset tree, per-client quotas, weekly scrub, full-pool headroom |
-| `jail_host` | RACCT/RCTL, `jail_enable`, `/etc/rctl.conf` |
+| `jail_host` | RACCT/RCTL, `jail_enable`, `/etc/rctl.conf`, IPv4 forwarding |
 | `jail_base` | Versioned read-only base dataset, weekly `pkg -r` updates |
 | `jail_instances` | Per-jail datasets, nullfs fstab, `jail.conf.d` fragments, VNET wiring |
 | `backup_borg` | borg jail + sshd, append-only forced commands, host-side compaction |
 | `backup_restic` | rest-server jail, append-only, per-client htpasswd |
 | `backup_rsync` | rsync/sftp jail + sshd, `rrsync -wo` or chrooted `internal-sftp` |
 | `backup_zrecv` | Host-side receive listener on its own sshd instance |
-| `backup_snapshots` | zfsnap policies: hourly 48, daily 30, monthly 12 |
+| `backup_snapshots` | sanoid policies: hourly 48, daily 30, monthly 12 |
 | `backup_monitoring` | `520.backup-status` in `periodic security` |
 
 ## Networking
@@ -93,11 +93,17 @@ one. The default route in each jail exists only so replies reach tailnet clients
 The host advertises the jail subnet as a Tailscale subnet router. Nothing is
 public; `firewall_allow_tcp` is empty and stays that way.
 
-## Two things that will silently break backups
+## Three things that will silently break backups
 
 **Tailscale key expiry.** Turn it off for this node in the admin console. The
 180-day default drops the box off the tailnet and every backup fails with no
 obvious cause.
+
+**Unapproved subnet route.** `backup_network` runs `tailscale set
+--advertise-routes`, which only offers the route. Until someone approves
+`10.100.0.0/16` on the machine's page in the admin console, no tailnet client
+reaches `10.100.x.2` and the play still reports success. Clients need
+`tailscale up --accept-routes` too; it is off by default on Linux and macOS.
 
 **Manual unlock.** `erebus` boots into an unencrypted outer UFS base and waits
 for `unlock.sh` (see the `freebsd-outerbase` repo). Any reboot - VPS maintenance,
@@ -108,11 +114,26 @@ pings, not this box.
 
 ## Run
 
+`site.yml` is a dev entrypoint: it runs this collection alone, which gives you
+jails and datasets on a host with no accounts, no pf and no hardening. A real
+deploy runs all three collections in order.
+
     ansible-galaxy collection install -r requirements.yml
-    ansible-playbook -i inventory/hosts.yml site.yml --vault-password-file <file>
+    ansible-playbook chain.yml --vault-password-file <file>
+
+where `chain.yml` is the three imports in `tests/chain.yml`. Clients addressing
+the box use the jail addresses directly - `borg@10.100.1.2`, `10.100.2.2:8000`,
+`10.100.3.2` for rsync and sftp, and the host's tailnet address on 2222 for
+`zfs recv`. There is no rdr and no nat, so `borg@erebus` reaches the host sshd
+instead.
+
+The first run against a virgin box needs two connection users, because base
+creates `acid` and `ansible` and hardening then refuses root logins. Run
+`acidnetworks.base_freebsd.site` as root, then the other two as `ansible`.
 
 Client definitions and contract vars live in `inventory/group_vars/all/main.yml`;
-secrets in `vault.yml` beside it.
+secrets in `vault.yml` beside it. Both are orchestrator-local and shipped in
+neither the collection nor this public repo.
 
 ## Client uids
 

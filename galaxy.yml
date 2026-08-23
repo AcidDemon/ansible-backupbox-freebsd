@@ -24,6 +24,7 @@ issues: https://github.com/AcidDemon/ansible-backupbox-freebsd/issues
 # Ship roles and playbooks only. Everything else is orchestrator-local, especially
 # files/ (committed deploy keys) and inventory/ (vault).
 build_ignore:
+  - .serena
   - .vagrant
   - .ansible
   - .envrc

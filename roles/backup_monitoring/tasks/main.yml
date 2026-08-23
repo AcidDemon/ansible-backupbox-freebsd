@@ -16,6 +16,9 @@
         dest: "{{ backup_monitoring_script }}"
         owner: root
         group: wheel
-        mode: "0755"
+        # 0700, not 0755: the vaulted healthchecks ping URLs are rendered into
+        # the script, and a ping URL is a bearer credential. periodic(8) runs
+        # this as root, so nothing needs to read it.
+        mode: "0700"
         validate: "/bin/sh -n %s"
       no_log: true   # healthchecks ping URLs are vaulted

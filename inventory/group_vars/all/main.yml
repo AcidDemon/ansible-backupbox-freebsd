@@ -12,7 +12,7 @@ admin_email: c.schlueter@acidnetworks.net
 # weekly, monthly and security runs (which carry 520.backup-status, aide, pkg
 # audit and the ZFS scrub result), the daily security posture report, and the
 # stdout of every root cron job, meaning borg-compact, jail-pkg-update,
-# freebsd-auto-update and zfsnap.
+# freebsd-auto-update and sanoid.
 #
 # Relaying through msmtp rather than leaving it to dma(8). dma would attempt
 # direct SMTP from the VPS with no smarthost, so the mail is generated, refused
@@ -103,6 +103,14 @@ firewall_forward_policy: forward  # tailnet -> jail /24s, see jail_host
 firewall_anchors: []
 
 # --- hardening_freebsd contract ----------------------------------------------
+# harden.yml arms an at(1) job in pre_tasks that strips the sshd drop-ins if the
+# play never disarms it. The 20-minute default is shorter than a first run: the
+# crowdsec hub update, two network-bound collection installs and `aide --init`
+# over a dozen directory trees with sha256+sha512 do not fit. Firing mid-play
+# leaves a green run and an unhardened box, because ansible has already written
+# the files it would need to rewrite.
+harden_rollback_minutes: 90
+
 ssh_allow_groups: [sshusers]
 # zfsrecv uses its own sshd instance, so it needs neither of these. Listed as the
 # documented place to put any future host-side service account.

@@ -14,7 +14,7 @@ set -u
 rc=0
 now=$(date +%s)
 
-# Newest snapshot that actually recorded new data. zfsnap keeps snapshotting on
+# Newest snapshot that actually recorded new data. sanoid keeps snapshotting on
 # schedule whether or not the client wrote anything, so plain snapshot age would
 # never look stale - it would always be under an hour old and always pass.
 # `written` is the space a snapshot holds that its predecessor did not.
@@ -44,7 +44,7 @@ ds="{{ backup_pool }}/{{ svc }}/{{ c.name }}"
 max_age={{ (c.max_age_hours | default(backup_monitoring_default_max_age_hours)) * 3600 }}
 created=$(last_change "$ds")
 if [ -z "$created" ]; then
-    echo "MISSING  $ds: no snapshot has ever recorded data (expected until the first zfsnap run)"
+    echo "MISSING  $ds: no snapshot has ever recorded data (expected until the first sanoid run)"
     rc=1
 else
     age=$(( now - created ))

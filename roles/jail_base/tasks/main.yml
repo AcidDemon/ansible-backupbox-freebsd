@@ -10,17 +10,25 @@
       register: _host_userland
       changed_when: false
 
+    # freebsd-version -u carries the patch level once freebsd-update has run
+    # (15.1-RELEASE-p1), but the release mirror publishes only 15.1-RELEASE -
+    # there is no -pN directory to fetch, so the MANIFEST and base.txz gets
+    # below 404 unless it is stripped. base_freebsd installs a daily
+    # freebsd-auto-update cron, so even a clean box acquires one within a day.
     - name: Settle on the jail base version
       ansible.builtin.set_fact:
-        jail_base: "{{ jail_base_version | default('', true) or _host_userland.stdout | trim }}"
+        _host_release: "{{ _host_userland.stdout | trim | regex_replace('-p[0-9]+$', '') }}"
+        jail_base: >-
+          {{ jail_base_version | default('', true)
+             or (_host_userland.stdout | trim | regex_replace('-p[0-9]+$', '')) }}
 
     - name: Warn when the jail base is pinned away from the host version
       ansible.builtin.debug:
         msg: >-
           jail base is {{ jail_base }} but the host userland is
-          {{ _host_userland.stdout | trim }}. That combination is only safe while
+          {{ _host_release }}. That combination is only safe while
           you are staging an upgrade.
-      when: jail_base != _host_userland.stdout | trim
+      when: jail_base != _host_release
 
     # jail_dataset defaults to zroot/jails, which silently assumes a ZFS root.
     # On a UFS-root host community.general.zfs fails with "missing pool name",

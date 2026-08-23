@@ -10,6 +10,24 @@
          | selectattr('transfer', 'equalto', 'sftp') | list }}
     _rsync_clients: "{{ _client_rows | rejectattr('name', 'in', _sftp_clients | map(attribute='name') | list) | list }}"
   block:
+    # rrsync and the chrooted internal-sftp are selected by two separate
+    # expressions - authorized_keys.j2 branches on == 'rsync', _sftp_clients
+    # matches equalto 'sftp' - which are not complements. A value that is
+    # neither ('SFTP', a trailing space) gets the forced command from neither
+    # branch and no Match block either, leaving restrict,pty against a /bin/sh
+    # account: an interactive shell in the jail.
+    - name: Refuse an unknown transfer mode
+      ansible.builtin.assert:
+        that: item.transfer | default('rsync') in ['rsync', 'sftp']
+        fail_msg: >-
+          Client '{{ item.name }}' sets transfer '{{ item.transfer | default('rsync') }}'.
+          Only 'rsync' and 'sftp' are handled; anything else loses both the
+          rrsync forced command and the sftp chroot.
+        quiet: true
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
     # python3 is not a dependency of the rsync package, but rrsync is a python
     # script, so without it the forced command dies with "not found" - which
     # looks like a missing rrsync rather than a missing interpreter.
