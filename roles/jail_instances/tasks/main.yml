@@ -111,6 +111,31 @@
         jail: "{{ item }}"
       notify: Restart jails
 
+    # jail(8) reads /etc/jail.conf and nothing else. The .d directory is a
+    # convention that only works because something includes it, and rc.d/jail
+    # only consults /etc/jail.conf.d/<name>.conf when it is given a jail name.
+    #
+    # That distinction hid this bug completely. Ansible starts and restarts
+    # jails by name, so every converge found them running and reported success.
+    # Boot passes no name, so `service jail start` read a file that was not
+    # there and started nothing - and the box came back with no ingest at all,
+    # while a converge minutes later would have said everything was fine.
+    #
+    # Rendered after the fragments so the glob always matches something.
+    - name: Point /etc/jail.conf at the per-jail fragments
+      ansible.builtin.copy:
+        dest: /etc/jail.conf
+        content: |
+          # Managed by Ansible
+          # Per-jail configuration lives in jail.conf.d. This file exists so
+          # that `service jail start` at boot, which passes no jail name, finds
+          # them at all.
+          .include "/etc/jail.conf.d/*.conf";
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+
     # The jail needs a default route so replies reach tailnet clients. It still
     # cannot initiate outbound: pf has no pass rule for traffic arriving on the
     # epair, only floating state created by the inbound connection.
