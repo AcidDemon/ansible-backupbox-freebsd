@@ -4,6 +4,12 @@
   vars:
     _jail_root: "{{ jail_dataset_mount }}/{{ backup_restic_jail }}"
     _client_rows: "{{ backup_clients | selectattr('services', 'contains', 'restic') | list }}"
+    # Absence of this file is what keeps --append-only on, so the rc.conf.d
+    # fragment tests for it rather than for its opposite: losing the sentinel
+    # leaves the server protected. Two paths for one file - the rc fragment is
+    # read inside the jail, the maintenance script runs on the host.
+    _maint_sentinel: "/usr/local/etc/{{ backup_restic_service }}.maintenance"
+    _maint_sentinel_host: "{{ _jail_root }}/usr/local/etc/{{ backup_restic_service }}.maintenance"
   block:
     # No sshd in this jail at all. rest-server speaks HTTP, which is also the
     # only way to get restic's append-only guarantee - it has none over sftp.
@@ -81,6 +87,25 @@
         mode: "0600"
       no_log: true
       notify: Restart rest-server
+
+    # A converge restores the declared state, and the declared state is
+    # append-only. Running the play during a maintenance window therefore closes
+    # it early, which is the right way round: a prune that fails is recoverable,
+    # a window nobody remembers is not.
+    - name: Close any open restic maintenance window
+      ansible.builtin.file:
+        path: "{{ _maint_sentinel_host }}"
+        state: absent
+      notify: Restart rest-server
+
+    - name: Install the maintenance window helper
+      ansible.builtin.template:
+        src: restic-maintenance.sh.j2
+        dest: /usr/local/sbin/restic-maintenance
+        owner: root
+        group: wheel
+        mode: "0750"
+        validate: "/bin/sh -n %s"
 
     - name: Configure rest-server
       ansible.builtin.template:

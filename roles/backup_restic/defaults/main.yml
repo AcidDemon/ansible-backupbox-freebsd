@@ -15,3 +15,10 @@ backup_restic_port: 8000
 # lifecycle to maintain, not confidentiality. Flip this if the box ever gets a
 # path that is not the tailnet.
 backup_restic_tls: false
+
+# How long `restic-maintenance open` leaves append-only off before an at(1) job
+# puts it back. restic is the one ingest path whose retention loop does not
+# close on its own: rest-server refuses the delete, so space is only ever
+# reclaimed inside a window like this. Long enough for a prune over a slow link,
+# short enough that a forgotten window shuts itself.
+backup_restic_maintenance_minutes: 120

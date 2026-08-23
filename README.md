@@ -40,6 +40,23 @@ behind, but it cannot run `borg prune` itself, because prune needs the repositor
 passphrase and these repos are encrypted client-side. Retention is the client's
 call; reclaiming the space is the host's.
 
+restic has no equivalent half. Because the delete is refused rather than
+recorded, nothing reclaims space and the client's quota fills eventually. The
+only way out is to stop refusing for a while, so `restic-maintenance` on the
+host opens a bounded window:
+
+    restic-maintenance open 60     # append-only off, at(1) closes it in 60 min
+    restic-maintenance status      # exits 1 while a window is open
+    restic-maintenance close       # close early
+
+The rc fragment tests for a sentinel file and adds `--append-only` when it is
+absent, so a lost or half-written sentinel leaves the server protected rather
+than open. An ansible run closes the window too, because the declared state is
+append-only. `520.backup-status` reports one that outlived its at(1) job.
+
+This asymmetry is the main reason to prefer borg per host rather than mixing:
+borg's retention loop closes with nobody watching, restic's needs an operator.
+
 **Host-owned snapshots.** No jail is ever delegated a ZFS dataset. Backup data
 reaches a jail through a nullfs mount, as a plain directory.
 
@@ -71,7 +88,7 @@ the target dataset from which key authenticated, and a delegation that excludes
 | `jail_base` | Versioned read-only base dataset, weekly `pkg -r` updates |
 | `jail_instances` | Per-jail datasets, nullfs fstab, `jail.conf.d` fragments, VNET wiring |
 | `backup_borg` | borg jail + sshd, append-only forced commands, host-side compaction |
-| `backup_restic` | rest-server jail, append-only, per-client htpasswd |
+| `backup_restic` | rest-server jail, append-only, per-client htpasswd, maintenance window |
 | `backup_rsync` | rsync/sftp jail + sshd, `rrsync -wo` or chrooted `internal-sftp` |
 | `backup_zrecv` | Host-side receive listener on its own sshd instance |
 | `backup_snapshots` | sanoid policies: hourly 48, daily 30, monthly 12 |

@@ -74,6 +74,19 @@ for repo in $(find_borg_repos "{{ backup_root }}/borg"); do
     fi
 done
 
+{% if backup_clients | selectattr('services', 'contains', 'restic') | list | length > 0 %}
+echo
+echo "== restic append-only =="
+# Flags a maintenance window someone forgot to close. The at(1) job should have
+# done it, but this is the check that runs whether or not atrun did.
+if [ -f "{{ jail_dataset_mount }}/{{ backup_restic_jail | default('restic') }}/usr/local/etc/{{ backup_restic_service | default('restserver') }}.maintenance" ]; then
+    echo "OPEN     rest-server is running WITHOUT --append-only"
+    rc=1
+else
+    echo "ok       append-only enforced"
+fi
+{% endif %}
+
 echo
 echo "== restic pack integrity (sample of {{ backup_monitoring_restic_sample }}) =="
 # Every restic pack file is named after the SHA256 of its own contents, so this

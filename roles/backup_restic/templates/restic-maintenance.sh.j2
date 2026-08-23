@@ -1,0 +1,98 @@
+#!/bin/sh
+# Managed by Ansible. Runs on the host, as root, outside the jail.
+#
+# Opens a bounded window in which rest-server runs without --append-only, so a
+# client can reclaim space with `restic forget --prune`.
+#
+# borg does not need this: the client prunes, append-only records it without
+# destroying anything, and the host compacts afterwards with no key. restic has
+# no such half - rest-server refuses the delete outright, so the only way to
+# reclaim space is to stop refusing for a while. The window closes itself from
+# an at(1) job, because one left open by a distracted operator removes the only
+# protection a restic client has against its own key being stolen.
+#
+#   restic-maintenance open [minutes]   default {{ backup_restic_maintenance_minutes }}
+#   restic-maintenance close            close now, cancel the pending job
+#   restic-maintenance status           exits 1 while a window is open
+#
+# Note that an ansible run closes the window too: the play removes the sentinel
+# to restore the declared state.
+set -eu
+
+JAIL={{ backup_restic_jail }}
+SVC={{ backup_restic_service }}
+SENTINEL={{ _maint_sentinel_host }}
+DEFAULT_MINUTES={{ backup_restic_maintenance_minutes }}
+REPO_HOST=10.100.{{ (jails | selectattr('name', 'equalto', backup_restic_jail) | first).id }}.2
+
+log() { logger -t restic-maintenance "$*"; echo "[restic-maintenance] $*"; }
+die() { log "$*"; exit 1; }
+
+restart() {
+    jexec "$JAIL" service "$SVC" restart >/dev/null 2>&1 ||
+        die "rest-server failed to restart, check: jexec $JAIL service $SVC status"
+}
+
+# Cancel any close job queued earlier, so a second `open` cannot leave a stale
+# timer to slam the window shut in the middle of a prune.
+cancel_pending() {
+    for job in $(atq 2>/dev/null | awk '{print $1}'); do
+        if at -c "$job" 2>/dev/null | grep -q 'restic-maintenance close'; then
+            at -r "$job" 2>/dev/null || true
+        fi
+    done
+}
+
+case "${1:-status}" in
+open)
+    minutes=${2:-$DEFAULT_MINUTES}
+    case "$minutes" in
+        '' | *[!0-9]*) die "minutes must be a positive integer, got '$minutes'" ;;
+    esac
+    [ "$minutes" -gt 0 ] || die "minutes must be greater than zero"
+
+    cancel_pending
+    : > "$SENTINEL"
+    restart
+
+    # Schedule the close before announcing success. If at(1) is unavailable the
+    # window would never shut on its own, so back the whole thing out instead.
+    if ! echo "/usr/local/sbin/restic-maintenance close" | at now + "$minutes" minutes >/dev/null 2>&1; then
+        rm -f "$SENTINEL"
+        restart
+        die "could not schedule the close job, window NOT opened"
+    fi
+
+    log "append-only is OFF for ${minutes}m"
+    log "prune from the client, e.g."
+    log "  restic -r rest:http://NAME:PASS@${REPO_HOST}:{{ backup_restic_port }}/NAME/ forget --keep-daily 30 --prune"
+    log "then close early with: restic-maintenance close"
+    ;;
+
+close)
+    cancel_pending
+    if [ -f "$SENTINEL" ]; then
+        rm -f "$SENTINEL"
+        restart
+        log "append-only restored"
+    else
+        log "already closed, nothing to do"
+    fi
+    ;;
+
+status)
+    if [ -f "$SENTINEL" ]; then
+        echo "OPEN     append-only is OFF since $(stat -f %Sm "$SENTINEL")"
+        atq 2>/dev/null | while read -r job when; do
+            at -c "$job" 2>/dev/null | grep -q 'restic-maintenance close' &&
+                echo "         scheduled close: $when"
+        done
+        exit 1
+    fi
+    echo "ok       append-only is on"
+    ;;
+
+*)
+    die "usage: restic-maintenance open [minutes] | close | status"
+    ;;
+esac

@@ -5,7 +5,25 @@
 # The rc script passes --path itself from this variable, so it must not also
 # appear in _options.
 {{ backup_restic_service }}_store="/backups"
+
+# --private-repos confines each user to /<username>.
+_opts="--listen :{{ backup_restic_port }} --private-repos --htpasswd-file /usr/local/etc/{{ backup_restic_service }}.htpasswd"
+{% if backup_restic_tls %}
+_opts="$_opts --tls --tls-cert /usr/local/etc/{{ backup_restic_service }}.crt --tls-key /usr/local/etc/{{ backup_restic_service }}.key"
+{% endif %}
+
 # --append-only is the whole point: a client holding valid credentials can write
 # new snapshots but `restic forget --prune` against this server is refused.
-# --private-repos confines each user to /<username>.
-{{ backup_restic_service }}_options="--listen :{{ backup_restic_port }} --append-only --private-repos --htpasswd-file /usr/local/etc/{{ backup_restic_service }}.htpasswd{% if backup_restic_tls %} --tls --tls-cert /usr/local/etc/{{ backup_restic_service }}.crt --tls-key /usr/local/etc/{{ backup_restic_service }}.key{% endif %}"
+#
+# It is also why restic repositories never shrink on their own. Unlike borg,
+# where the client prunes and the host compacts afterwards without a key, there
+# is no half of this that works unattended: reclaiming space means dropping
+# append-only for a window. `restic-maintenance` on the host opens one and
+# closes it again from an at(1) job.
+#
+# The test is written this way round deliberately. Append-only is the default
+# and the sentinel is what removes it, so a missing, unreadable or half-written
+# sentinel leaves the server protected rather than open.
+[ -f "{{ _maint_sentinel }}" ] || _opts="$_opts --append-only"
+
+{{ backup_restic_service }}_options="$_opts"
