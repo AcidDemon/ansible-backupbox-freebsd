@@ -1,7 +1,16 @@
 ---
 # ---------------------------------------------------------------------------
-# Orchestrator vars. This repo is the top layer, so it sets the contract vars
-# for base and hardening too - they are whole-value overrides, never merged.
+# Reference, not a deploy inventory.
+#
+# This documents every contract var the collection expects, and backs the dev
+# entrypoint (site.yml) and the VM harness, which supplies its own values. A
+# real deploy keeps its inventory and vault in a private orchestrator repo,
+# because this one is public: an address, a client list and their quotas are
+# not things to publish, and an encrypted vault in a public repo is an offline
+# target.
+#
+# This repo is the top layer of the chain, so it also sets the contract vars for
+# base and hardening - whole-value overrides, never merged.
 # ---------------------------------------------------------------------------
 
 admin_user: acid

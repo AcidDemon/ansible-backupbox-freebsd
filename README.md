@@ -148,9 +148,15 @@ The first run against a virgin box needs two connection users, because base
 creates `acid` and `ansible` and hardening then refuses root logins. Run
 `acidnetworks.base_freebsd.site` as root, then the other two as `ansible`.
 
-Client definitions and contract vars live in `inventory/group_vars/all/main.yml`;
-secrets in `vault.yml` beside it. Both are orchestrator-local and shipped in
-neither the collection nor this public repo.
+`inventory/` here is a reference for the dev entrypoint and the VM harness, not
+a deploy inventory: it documents every contract var this collection expects, and
+carries no clients and no secrets. A real deploy keeps those in a private
+orchestrator repo, which is also where the vault lives. Nothing in this repo
+should ever hold one.
+
+The vault keys this collection reads are `vault_healthchecks` and
+`vault_restic_passwords`, both keyed by client name. `hardening_freebsd` adds
+`vault_smtp_user` and `vault_smtp_password`.
 
 ## Client uids
 
