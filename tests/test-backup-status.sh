@@ -23,10 +23,12 @@ cat > "$work/vars.json" <<JSON
    {"name": "stale_client", "uid": 5002, "services": ["borg"], "quota": "1G", "max_age_hours": 26,
     "ssh_key": "ssh-ed25519 AAAA y"},
    {"name": "empty_client", "uid": 5003, "services": ["borg"], "quota": "1G", "max_age_hours": 26,
-    "ssh_key": "ssh-ed25519 AAAA z"}
+    "ssh_key": "ssh-ed25519 AAAA z"},
+   {"name": "nosnap_client", "uid": 5004, "services": ["borg"], "quota": "1G", "max_age_hours": 26,
+    "ssh_key": "ssh-ed25519 AAAA w"}
  ],
  "vault_healthchecks": {}, "backup_monitoring_default_max_age_hours": 26,
- "backup_monitoring_restic_sample": 5
+ "backup_monitoring_restic_sample": 5, "backup_monitoring_empty_bytes": 1048576
 }
 JSON
 
@@ -36,16 +38,30 @@ ANSIBLE_LOCALHOST_WARNING=False ansible localhost -c local \
   -e "@$work/vars.json" >/dev/null
 
 mkdir -p "$work/bin"
-# fresh_client: scheduler snapshots with written=0, one real write 1h ago.
-# stale_client: scheduler snapshots only since its last real write, ~111h ago.
-#               This is the case plain snapshot age would wrongly call healthy.
-# empty_client: snapshots exist but none ever recorded data.
+# fresh_client:  scheduler snapshots with written=0, one real write 1h ago.
+# stale_client:  scheduler snapshots only since its last real write, ~111h ago.
+#                This is the case plain snapshot age would wrongly call healthy.
+# empty_client:  dataset still holds nothing but its own metadata.
+# nosnap_client: real data on disk, but no snapshot has ever recorded any.
+#
+# `zfs get` and `zfs list` answer separately: has_data() reads used from get, and
+# a stub that replied to both with the snapshot table made every client look
+# empty.
 cat > "$work/bin/zfs" <<ZFS
 #!/bin/sh
-case "\$*" in
-  *fresh_client*) printf '%s\t0\n%s\t4096\n' "$now" "$fresh" ;;
-  *stale_client*) printf '%s\t0\n%s\t0\n%s\t4096\n' "$now" "$(( now - 3600 ))" "$stale" ;;
-  *empty_client*) printf '%s\t0\n' "$now" ;;
+case "\$1" in
+  get)
+    case "\$*" in
+      *empty_client*) echo 1024 ;;
+      *) echo 4194304 ;;
+    esac ;;
+  list)
+    case "\$*" in
+      *fresh_client*) printf '%s\t0\n%s\t4096\n' "$now" "$fresh" ;;
+      *stale_client*) printf '%s\t0\n%s\t0\n%s\t4096\n' "$now" "$(( now - 3600 ))" "$stale" ;;
+      *empty_client*) printf '%s\t0\n' "$now" ;;
+      *nosnap_client*) printf '%s\t0\n' "$now" ;;
+    esac ;;
 esac
 ZFS
 printf '#!/bin/sh\nexit 0\n' > "$work/bin/zpool"
@@ -68,7 +84,8 @@ check() {
 }
 check "fresh client passes"                 '^ok       backup/borg/fresh_client'
 check "stale client is caught"              '^STALE    backup/borg/stale_client'
-check "client that never wrote is caught"   '^MISSING  backup/borg/empty_client'
+check "empty dataset is caught"              '^MISSING  backup/borg/empty_client'
+check "client that never wrote is caught"   '^MISSING  backup/borg/nosnap_client'
 
 if [ "$rc" -eq 0 ]; then
   echo "FAIL exit status should be non-zero when something is stale"; fail=1
