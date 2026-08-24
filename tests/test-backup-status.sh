@@ -4,6 +4,9 @@
 # took a snapshot" from "the client actually wrote something". Stubs zfs and
 # friends, renders the real template, and asserts on the output.
 #
+# Also pins the periodic(8) exit-status contract the report depends on. base sets
+# security_show_success=NO, so a report that exited 0 would never be mailed.
+#
 # Run from the repo root:  sh tests/test-backup-status.sh
 set -eu
 
@@ -86,11 +89,41 @@ check "fresh client passes"                 '^ok       backup/borg/fresh_client'
 check "stale client is caught"              '^STALE    backup/borg/stale_client'
 check "empty dataset is caught"              '^MISSING  backup/borg/empty_client'
 check "client that never wrote is caught"   '^MISSING  backup/borg/nosnap_client'
+check "empty borg section says so"          'no borg repositories under'
+check "empty restic section says so"        'no restic repositories under'
 
-if [ "$rc" -eq 0 ]; then
-  echo "FAIL exit status should be non-zero when something is stale"; fail=1
+if [ "$rc" -eq 3 ]; then
+  echo "ok   exit 3 when something is stale"
 else
-  echo "ok   non-zero exit status"
+  echo "FAIL exit should be 3 (unmaskable) when something is stale, got $rc"; fail=1
+fi
+
+# Second render on the shipped default. An empty client list is not an alarm, so
+# it has to leave the report at 1 while still saying that the list is empty.
+cat > "$work/empty.json" <<JSON
+{
+ "backup_pool": "backup", "backup_root": "$work/backup", "backup_clients": [],
+ "vault_healthchecks": {}, "backup_monitoring_default_max_age_hours": 26,
+ "backup_monitoring_restic_sample": 5, "backup_monitoring_empty_bytes": 1048576
+}
+JSON
+
+ANSIBLE_LOCALHOST_WARNING=False ansible localhost -c local \
+  -m ansible.builtin.template \
+  -a "src=$repo/roles/backup_monitoring/templates/520.backup-status.j2 dest=$work/520empty" \
+  -e "@$work/empty.json" >/dev/null
+chmod +x "$work/520empty"
+
+set +e
+out=$(PATH="$work/bin:$PATH" sh "$work/520empty" 2>&1)
+rc=$?
+set -e
+
+check "no clients is stated, not implied"   'no backup clients are configured'
+if [ "$rc" -eq 1 ]; then
+  echo "ok   exit 1 on a clean run"
+else
+  echo "FAIL exit should be 1 on a clean run, got $rc"; fail=1
 fi
 
 [ "$fail" -eq 0 ] || { echo; echo "--- output ---"; printf '%s\n' "$out"; exit 1; }

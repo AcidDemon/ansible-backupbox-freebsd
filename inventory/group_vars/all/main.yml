@@ -23,6 +23,10 @@ admin_email: c.schlueter@acidnetworks.net
 # stdout of every root cron job, meaning borg-compact, jail-pkg-update,
 # freebsd-auto-update and sanoid.
 #
+# base sets security_show_success=NO, so a periodic security check that found
+# nothing prints nothing and 999.clean-note closes the mail saying so. Our own
+# drop-ins exit 1 or 3 and are never masked.
+#
 # Relaying through msmtp rather than leaving it to dma(8). dma would attempt
 # direct SMTP from the VPS with no smarthost, so the mail is generated, refused
 # or silently binned, and the box looks healthy while telling you nothing.

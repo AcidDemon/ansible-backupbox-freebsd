@@ -129,6 +129,18 @@ cannot warn you about this, because it lives on the inner system that is not
 running. That is why the primary staleness alarm is client-side healthchecks.io
 pings, not this box.
 
+## What arrives in the mail
+
+`520.backup-status` follows the `periodic(8)` exit-status contract that base relies
+on: 1 when the report is routine, 3 when a client is stale or missing, a borg repo
+fails its check, a restic pack is corrupt, or the restic maintenance window was left
+open. base sets `security_show_success=NO`, so a report exiting 0 would be dropped
+before it reached you, and 3 is above the range `periodic` can mask at all.
+
+Every section says what empty means for it. No clients configured, no borg repos under
+`{backup_root}/borg`, no restic repos under `{backup_root}/restic` are all stated in
+words, because a heading with nothing under it reads like a check that broke.
+
 ## Run
 
 `site.yml` is a dev entrypoint: it runs this collection alone, which gives you

@@ -11,7 +11,10 @@
 # staleness alarm is client-side healthchecks.io pings, not this script.
 
 set -u
-rc=0
+# periodic(8) exit statuses, not shell convention: 1 means "notable information"
+# and survives security_show_success=NO, 3 is above the range periodic can mask,
+# so a stale or missing backup reaches the mail whatever periodic.conf says.
+rc=1
 now=$(date +%s)
 
 # Newest snapshot that actually recorded new data. sanoid keeps snapshotting on
@@ -54,6 +57,9 @@ zpool status -x {{ backup_pool }}
 
 echo
 echo "== per-client freshness =="
+{% if backup_clients | length == 0 %}
+echo "  no backup clients are configured"
+{% endif %}
 {% for c in backup_clients %}
 {% for svc in c.services %}
 ds="{{ backup_pool }}/{{ svc }}/{{ c.name }}"
@@ -61,15 +67,15 @@ max_age={{ (c.max_age_hours | default(backup_monitoring_default_max_age_hours)) 
 created=$(last_change "$ds")
 if ! has_data "$ds"; then
     echo "MISSING  $ds: dataset is empty, no backup has ever arrived"
-    rc=1
+    rc=3
 elif [ -z "$created" ]; then
     echo "MISSING  $ds: no snapshot has ever recorded data (expected until the first sanoid run)"
-    rc=1
+    rc=3
 else
     age=$(( now - created ))
     if [ "$age" -gt "$max_age" ]; then
         printf 'STALE    %s: %sh old (limit %sh)\n' "$ds" "$(( age / 3600 ))" "$(( max_age / 3600 ))"
-        rc=1
+        rc=3
 {% if c.name in (vault_healthchecks | default({})) %}
         fetch -qo /dev/null "{{ vault_healthchecks[c.name] }}/fail" 2>/dev/null || true
 {% endif %}
@@ -84,14 +90,17 @@ echo
 echo "== borg repository integrity =="
 # --repository-only checks segment integrity without the repo passphrase, which
 # the host does not have and should not have.
+found=0
 for repo in $(find_borg_repos "{{ backup_root }}/borg"); do
+    found=1
     if /usr/local/bin/borg check --repository-only "$repo" 2>&1; then
         echo "ok       $repo"
     else
         echo "FAILED   $repo"
-        rc=1
+        rc=3
     fi
 done
+[ "$found" -eq 1 ] || echo "  no borg repositories under {{ backup_root }}/borg"
 
 {% if backup_clients | selectattr('services', 'contains', 'restic') | list | length > 0 %}
 echo
@@ -100,7 +109,7 @@ echo "== restic append-only =="
 # done it, but this is the check that runs whether or not atrun did.
 if [ -f "{{ jail_dataset_mount }}/{{ backup_restic_jail | default('restic') }}/usr/local/etc/{{ backup_restic_service | default('restserver') }}.maintenance" ]; then
     echo "OPEN     rest-server is running WITHOUT --append-only"
-    rc=1
+    rc=3
 else
     echo "ok       append-only enforced"
 fi
@@ -110,15 +119,22 @@ echo
 echo "== restic pack integrity (sample of {{ backup_monitoring_restic_sample }}) =="
 # Every restic pack file is named after the SHA256 of its own contents, so this
 # verifies real integrity with no repository password involved.
+found=0
 for repo in {{ backup_root }}/restic/*; do
     [ -d "$repo/data" ] || continue
+    found=1
     bad=0
     for f in $(find "$repo/data" -type f | head -n {{ backup_monitoring_restic_sample }}); do
         want=$(basename "$f")
         got=$(sha256 -q "$f")
-        [ "$want" = "$got" ] || { echo "CORRUPT  $f"; bad=1; rc=1; }
+        [ "$want" = "$got" ] || { echo "CORRUPT  $f"; bad=1; rc=3; }
     done
-    [ "$bad" -eq 0 ] && echo "ok       $repo"
+    if [ "$bad" -eq 0 ]; then
+        echo "ok       $repo"
+    else
+        echo "CORRUPT  $repo"
+    fi
 done
+[ "$found" -eq 1 ] || echo "  no restic repositories under {{ backup_root }}/restic"
 
 exit $rc

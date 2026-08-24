@@ -7,7 +7,7 @@ collections:
   # (a NixOS store owned by nobody:nogroup fails every clone before auth).
   - name: git+https://github.com/AcidDemon/ansible-base-freebsd.git
     type: git
-    version: v0.2.2
+    version: v0.2.4
   - name: git+https://github.com/AcidDemon/ansible-hardening-freebsd.git
     type: git
-    version: v0.2.3
+    version: v0.2.5

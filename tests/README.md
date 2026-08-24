@@ -103,8 +103,11 @@ affected.
 
 ## Reporting
 
-    periodic security                        # 520.backup-status in the output,
-                                             # sane per-client ages
+    periodic security                        # 520.backup-status and the AIDE check
+                                             # appear even on a clean box, both exit 1.
+                                             # Nothing else does unless it found
+                                             # something. Sane per-client ages.
+    sh tests/test-backup-status.sh           # run from the repo root
 
 ## Idempotence
 
