@@ -4,7 +4,7 @@ collections:
   - name: ansible.posix
   - name: git+ssh://git@github.com/AcidDemon/ansible-base-freebsd.git
     type: git
-    version: v0.2.2
+    version: v0.2.4
   - name: git+ssh://git@github.com/AcidDemon/ansible-hardening-freebsd.git
     type: git
-    version: v0.2.3
+    version: v0.2.5
