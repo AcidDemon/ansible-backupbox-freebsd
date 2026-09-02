@@ -56,6 +56,25 @@
         group: "{{ _logs_pw.stdout.split(':')[3] }}"
         mode: "0750"
 
+    # pkg runs on the host, and the victoria-logs account exists only inside the
+    # jail, so the ownership the plist asks for by name lands on whatever the
+    # host's passwd resolves - which is not this account. daemon(8) opens the
+    # log file and both pidfiles after dropping to the service account, so it
+    # dies with "daemon: open: Permission denied" before victoria-logs is ever
+    # executed. Same reason backup_restic reads its uid out of the jail instead
+    # of naming the user: numerically is the only way the host can get this
+    # right.
+    - name: Let victoria-logs write its runtime directories
+      ansible.builtin.file:
+        path: "{{ _jail_root }}/var/{{ item }}/{{ backup_logs_package }}"
+        state: directory
+        owner: "{{ _logs_pw.stdout.split(':')[2] }}"
+        group: "{{ _logs_pw.stdout.split(':')[3] }}"
+        mode: "0750"
+      loop: [log, run]
+      loop_control:
+        label: "/var/{{ item }}/{{ backup_logs_package }}"
+
     - name: Ensure the jail rc.conf.d exists
       ansible.builtin.file:
         path: "{{ _jail_root }}/etc/rc.conf.d"
