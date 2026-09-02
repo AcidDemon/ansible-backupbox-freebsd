@@ -127,3 +127,23 @@
       until: _logs_health is success
       retries: 5
       delay: 3
+
+  # victoria-logs writes its own reason for giving up to the daemon(8) log and
+  # then exits, at which point ansible only sees a refused connection. Without
+  # this the next step is always a manual trip into the jail, on a box that
+  # needs a console unlock to reach.
+  rescue:
+    - name: Read what victoria-logs said before it exited
+      ansible.builtin.command: >-
+        tail -n 20
+        {{ _jail_root }}/var/log/{{ backup_logs_service }}/{{ backup_logs_service }}.log
+      register: _logs_tail
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with the log rather than with the refused connection
+      ansible.builtin.fail:
+        msg: >-
+          victoria-logs did not come up. Last lines of
+          /var/log/{{ backup_logs_service }}/{{ backup_logs_service }}.log inside
+          the jail: {{ _logs_tail.stdout | default('(log unreadable)') }}

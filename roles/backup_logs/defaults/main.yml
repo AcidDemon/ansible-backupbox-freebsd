@@ -20,11 +20,21 @@ backup_logs_http_port: 9428
 
 # UDP is not a preference. RouterOS sends syslog over UDP whatever
 # remote-protocol says - TCP and TLS there apply to CEF only - and FreeBSD's
-# base syslogd forwards over UDP alone, with no working '@@' syntax. Both
-# transports stay inside the tailnet, which is already WireGuard-encrypted.
+# base syslogd forwards over UDP alone, with no working '@@' syntax. It stays
+# inside the tailnet, which is already WireGuard-encrypted.
+#
+# 1514 rather than 514, because victoria-logs runs as an unprivileged account
+# and FreeBSD refuses a reserved-port bind to anyone but root. The three ways
+# round that are all worse than a port number: net.inet.ip.portrange
+# .reservedhigh is per-vnet but carries no CTLFLAG_PRISON, so jailed root
+# cannot write it; mac_portacl has an open bug against VNET jails; and running
+# the daemon as root would put a parser of untrusted device input back at uid 0.
+# Every sender here can be told a port - syslog.conf takes '@host:port',
+# RouterOS has remote-port, OPNsense has a Port field - so this costs one
+# number in each config and nothing else.
 # ponytail: one listener. Split servers and devices onto two ports with
 # -syslog.streamFields only when a query actually needs to tell them apart.
-backup_logs_syslog_port: 514
+backup_logs_syslog_port: 1514
 
 backup_logs_retention: 90d
 

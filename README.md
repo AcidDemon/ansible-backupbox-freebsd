@@ -123,7 +123,7 @@ public; `firewall_allow_tcp` is empty and stays that way.
 `backup_logs` is the one jail that stores nothing a client sent over ssh, so it
 works differently from the four ingest paths. It runs `net-mgmt/victoria-logs`,
 which is its own syslog server: OPNsense, MikroTik and every FreeBSD or Linux
-host point at `10.100.<id>.2:514` and there is no agent anywhere. Queries and the
+host point at `10.100.<id>.2:1514` and there is no agent anywhere. Queries and the
 built-in web UI answer on `:9428`, which is also what a Grafana instance
 elsewhere on the tailnet points the `victoriametrics-logs-datasource` plugin at.
 
@@ -150,8 +150,16 @@ Three things about the transport are not preferences:
 - **UDP, not TCP.** RouterOS sends syslog over UDP whatever `remote-protocol`
   says; TCP and TLS there apply to CEF only. FreeBSD's base syslogd forwards
   over UDP alone and does not implement the `@@` syntax. Open
-  `firewall_allow_udp_svc: [514]`, never `firewall_allow_udp`, which is the
+  `firewall_allow_udp_svc: [1514]`, never `firewall_allow_udp`, which is the
   public list.
+- **1514, not 514.** victoria-logs runs as an unprivileged account and FreeBSD
+  refuses a reserved-port bind to anyone but root, so it starts, logs why, and
+  exits. Every route around that is worse than a port number:
+  `net.inet.ip.portrange.reservedhigh` is per-vnet but has no `CTLFLAG_PRISON`,
+  so jailed root cannot write it; `mac_portacl` has an open bug against VNET
+  jails; and running the daemon as root would put a parser of untrusted device
+  input back at uid 0. Every sender takes a port, so this costs one number per
+  config.
 - **`-O rfc5424` on FreeBSD senders.** FreeBSD's RFC3164 output currently parses
   wrong in VictoriaLogs: the app name lands in the hostname field. Set
   `syslogd_flags="-s -O rfc5424"`. On MikroTik the equivalent is
