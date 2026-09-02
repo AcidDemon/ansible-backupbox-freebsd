@@ -13,3 +13,10 @@
 {% for c in backup_clients if jail.name in c.services %}
 {{ backup_root }}/{{ jail.name }}/{{ c.name }}	{{ jail_dataset_mount }}/{{ jail.name }}/backups/{{ c.name }}	nullfs	rw	0	0
 {% endfor %}
+{% if jail.quota is defined %}
+# A jail that declares its own quota keeps its own data rather than a client's:
+# the service inside it decides the layout, not a client over ssh. Nothing is
+# mounted underneath this one, so mounting the parent is safe here in a way the
+# per-client tree above is not.
+{{ backup_root }}/{{ jail.name }}	{{ jail_dataset_mount }}/{{ jail.name }}/backups	nullfs	rw	0	0
+{% endif %}

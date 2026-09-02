@@ -32,6 +32,20 @@
       loop_control:
         label: "{{ item.1 }}/{{ item.0.name }}"
 
+    # A jail that declares a quota keeps its own data rather than a client's -
+    # see the note in jail_instances' fstab.j2. Created here rather than in the
+    # role that uses it, because jail_instances renders that fstab and starts
+    # the jails, and a nullfs source that does not exist fails the start.
+    - name: Create a dataset for each jail that owns its storage
+      community.general.zfs:
+        name: "{{ backup_pool }}/{{ item.name }}"
+        state: present
+        extra_zfs_properties:
+          quota: "{{ item.quota }}"
+      loop: "{{ jails | selectattr('quota', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
     # Single vdev, no redundancy: a scrub detects rot it cannot repair. Worth
     # knowing about anyway, since the client still holds a good copy.
     - name: Schedule weekly scrubs

@@ -1,0 +1,26 @@
+# Managed by Ansible
+{{ backup_logs_service }}_enable="YES"
+{{ backup_logs_service }}_user="{{ backup_logs_user }}"
+{{ backup_logs_service }}_group="{{ backup_logs_user }}"
+
+# Not the port's /var/db/victoria-logs default. /backups is the nullfs mount of
+# {{ backup_pool }}/{{ backup_logs_jail }}, which is where the quota is and where
+# the encryption is; the default would put every log the fleet sends on the
+# jail's own dataset in zroot, in the clear.
+_opts="-storageDataPath=/backups"
+_opts="$_opts -retentionPeriod={{ backup_logs_retention }}"
+
+# Bare ':port'. The jail has one epair and lo, so there is nothing else to bind
+# to, and naming the address here would duplicate what jail.conf already says.
+_opts="$_opts -httpListenAddr=:{{ backup_logs_http_port }}"
+_opts="$_opts -syslog.listenAddr.udp=:{{ backup_logs_syslog_port }}"
+
+# RFC3164 has no year and no offset, so the receiver picks one. RFC5424 and
+# ISO8601 senders carry their own and are unaffected.
+_opts="$_opts -syslog.timezone={{ backup_logs_timezone }}"
+{% if backup_logs_use_remote_ip %}
+# Trust the source address over the hostname the sender claims.
+_opts="$_opts -syslog.useRemoteIP.udp"
+{% endif %}
+
+{{ backup_logs_service }}_args="$_opts"

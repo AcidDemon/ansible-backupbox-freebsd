@@ -1,0 +1,105 @@
+---
+- name: Configure the log ingest jail
+  when: backup_logs_enabled | bool
+  vars:
+    _jail_root: "{{ jail_dataset_mount }}/{{ backup_logs_jail }}"
+    _jail: "{{ jails | selectattr('name', 'eq', backup_logs_jail) | list }}"
+  block:
+    # The dataset and its nullfs mount into the jail both hang off the quota:
+    # backup_storage creates one for every jail that declares it, and
+    # jail_instances renders the mount from the same key. Without it the jail
+    # starts fine and victoria-logs writes onto the jail's own dataset in
+    # zroot - unencrypted, unquotaed, and gone at the next base extraction.
+    - name: Refuse to run without a log jail that owns its storage
+      ansible.builtin.assert:
+        that:
+          - _jail | length == 1
+          - _jail[0].quota is defined
+        fail_msg: >-
+          jails needs an entry named '{{ backup_logs_jail }}' with a quota, e.g.
+          {'name': '{{ backup_logs_jail }}', 'id': 4, 'quota': '100G'}. The quota
+          is what gives the jail its own dataset under {{ backup_root }} and
+          mounts it at /backups inside.
+        quiet: true
+
+    # No sshd in here, and nothing for sshguard or crowdsec to watch. Everything
+    # arrives as syslog or leaves over HTTP; administration is jexec from the
+    # host.
+    - name: Install victoria-logs in the jail
+      community.general.pkgng:
+        name: "{{ backup_logs_package }}"
+        state: present
+        rootdir: "{{ _jail_root }}"
+      environment: "{{ jail_pkg_environment }}"
+      register: _logs_pkg
+
+    # pkg -r writes the files but runs no post-install step inside the jail, so
+    # the jail's linker hints never learn about /usr/local/lib.
+    - name: Refresh the jail linker hints
+      ansible.builtin.command: "jexec {{ backup_logs_jail }} /etc/rc.d/ldconfig restart"
+      changed_when: true
+      when: _logs_pkg is changed
+
+    - name: Read the victoria-logs uid from inside the jail
+      ansible.builtin.command: "pw -R {{ _jail_root }} usershow {{ backup_logs_user }}"
+      register: _logs_pw
+      changed_when: false
+
+    # The host side of the nullfs mount. victoria-logs drops privileges before
+    # it opens the data directory, so a root-owned dataset means it starts,
+    # fails to write a single part, and exits.
+    - name: Let victoria-logs write into its dataset
+      ansible.builtin.file:
+        path: "{{ backup_root }}/{{ backup_logs_jail }}"
+        state: directory
+        owner: "{{ _logs_pw.stdout.split(':')[2] }}"
+        group: "{{ _logs_pw.stdout.split(':')[3] }}"
+        mode: "0750"
+
+    - name: Ensure the jail rc.conf.d exists
+      ansible.builtin.file:
+        path: "{{ _jail_root }}/etc/rc.conf.d"
+        state: directory
+        owner: root
+        group: wheel
+        mode: "0755"
+
+    - name: Configure victoria-logs
+      ansible.builtin.template:
+        src: victoria_logs.rc.j2
+        dest: "{{ _jail_root }}/etc/rc.conf.d/{{ backup_logs_service }}"
+        owner: root
+        group: wheel
+        mode: "0644"
+        backup: true
+      notify: Restart victoria-logs
+
+    # Enabling in rc.conf starts nothing, and the restart handler only fires
+    # when the config changed in this run. Without this a freshly created jail
+    # has victoria-logs enabled and not running, and the failure surfaces weeks
+    # later as a gap in the logs nobody was watching.
+    - name: Check whether victoria-logs is running
+      ansible.builtin.command: "jexec {{ backup_logs_jail }} service {{ backup_logs_service }} status"
+      register: _logs_svc
+      changed_when: false
+      failed_when: false
+
+    - name: Start victoria-logs
+      ansible.builtin.command: "jexec {{ backup_logs_jail }} service {{ backup_logs_service }} start"
+      changed_when: true
+      when: _logs_svc.rc != 0
+
+    - name: Apply a pending restart before the health check
+      ansible.builtin.meta: flush_handlers
+
+    # Stronger than `service status`, which reports a process that is up but
+    # rejected a flag or could not open its data directory. /health answers only
+    # once the listeners are bound.
+    - name: Confirm victoria-logs answers on the tailnet-facing port
+      ansible.builtin.uri:
+        url: "http://10.100.{{ _jail[0].id }}.2:{{ backup_logs_http_port }}/health"
+        status_code: 200
+      register: _logs_health
+      until: _logs_health is success
+      retries: 5
+      delay: 3

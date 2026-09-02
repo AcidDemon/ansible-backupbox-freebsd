@@ -27,3 +27,10 @@ jail_host_rctl:
     - maxproc:deny=100
     - openfiles:deny=4096
     - pcpu:deny=50
+  # victoria-logs holds its index in memory and forks nothing, so the process
+  # cap is tight and the memory cap is the one to watch.
+  logs:
+    - memoryuse:log=2g
+    - maxproc:deny=32
+    - openfiles:deny=4096
+    - pcpu:deny=50

@@ -1,0 +1,39 @@
+---
+# backup_ prefix to match every other role and variable in this collection.
+# These are logs, not backups: the same box, the same jail machinery, a fifth
+# thing the fleet pushes at it.
+backup_logs_enabled: true
+backup_logs_jail: logs
+
+# net-mgmt/victoria-logs. The package and the binary are hyphenated, the rc.d
+# script and all of its variables are not.
+backup_logs_package: victoria-logs
+backup_logs_service: victoria_logs
+# Account the port creates. victoria-logs drops to it before touching the data
+# directory, and that account exists only inside the jail, so the host chowns
+# its dataset numerically.
+backup_logs_user: victoria-logs
+
+# Query and insert API, and the built-in web UI at /select/vmui. This is the
+# port a Grafana instance elsewhere on the tailnet points its datasource at.
+backup_logs_http_port: 9428
+
+# UDP is not a preference. RouterOS sends syslog over UDP whatever
+# remote-protocol says - TCP and TLS there apply to CEF only - and FreeBSD's
+# base syslogd forwards over UDP alone, with no working '@@' syntax. Both
+# transports stay inside the tailnet, which is already WireGuard-encrypted.
+# ponytail: one listener. Split servers and devices onto two ports with
+# -syslog.streamFields only when a query actually needs to tell them apart.
+backup_logs_syslog_port: 514
+
+backup_logs_retention: 90d
+
+# Network gear names itself whatever it was last told to, which is frequently
+# wrong and sometimes absent. The source address is the one field a device
+# cannot get wrong.
+backup_logs_use_remote_ip: true
+
+# RFC3164 carries no year and no UTC offset, so a receiver has to assume one.
+# Senders that emit RFC5424 or an ISO8601 timestamp carry their own and ignore
+# this; everything else is read in this zone.
+backup_logs_timezone: UTC

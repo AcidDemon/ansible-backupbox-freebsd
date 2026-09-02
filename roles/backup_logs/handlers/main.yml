@@ -1,0 +1,4 @@
+---
+- name: Restart victoria-logs
+  ansible.builtin.command: "jexec {{ backup_logs_jail }} service {{ backup_logs_service }} restart"
+  changed_when: true

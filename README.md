@@ -98,6 +98,7 @@ the target dataset from which key authenticated, and a delegation that excludes
 | `backup_restic` | rest-server jail, append-only, per-client htpasswd, maintenance window |
 | `backup_rsync` | rsync/sftp jail + sshd, `rrsync -wo` or chrooted `internal-sftp` |
 | `backup_zrecv` | Host-side receive listener on its own sshd instance |
+| `backup_logs` | VictoriaLogs jail: syslog in, LogsQL and a Grafana datasource out |
 | `backup_snapshots` | sanoid policies: hourly 48, daily 30, monthly 12 |
 | `backup_monitoring` | `520.backup-status` in `periodic security` |
 
@@ -116,6 +117,50 @@ one. The default route in each jail exists only so replies reach tailnet clients
 
 The host advertises the jail subnet as a Tailscale subnet router. Nothing is
 public; `firewall_allow_tcp` is empty and stays that way.
+
+## Logs
+
+`backup_logs` is the one jail that stores nothing a client sent over ssh, so it
+works differently from the four ingest paths. It runs `net-mgmt/victoria-logs`,
+which is its own syslog server: OPNsense, MikroTik and every FreeBSD or Linux
+host point at `10.100.<id>.2:514` and there is no agent anywhere. Queries and the
+built-in web UI answer on `:9428`, which is also what a Grafana instance
+elsewhere on the tailnet points the `victoriametrics-logs-datasource` plugin at.
+
+Grafana does not belong on this box. It wants a browser session, a plugin
+lifecycle and a login, against a host whose whole design is that nothing is
+public and every reboot needs a console unlock. Ingest and store here, render
+somewhere else.
+
+The jail is declared like any other, plus a quota:
+
+    jails:
+      - name: logs
+        id: 4
+        quota: 100G
+
+That quota is load-bearing. It is what makes `backup_storage` create
+`<pool>/logs` and what makes `jail_instances` nullfs-mount it at `/backups`
+inside the jail, which is where `-storageDataPath` points. Without it the jail
+still starts and victoria-logs still runs - onto the jail's own dataset in
+zroot, unencrypted, unquotaed, and discarded at the next base extraction.
+
+Three things about the transport are not preferences:
+
+- **UDP, not TCP.** RouterOS sends syslog over UDP whatever `remote-protocol`
+  says; TCP and TLS there apply to CEF only. FreeBSD's base syslogd forwards
+  over UDP alone and does not implement the `@@` syntax. Open
+  `firewall_allow_udp_svc: [514]`, never `firewall_allow_udp`, which is the
+  public list.
+- **`-O rfc5424` on FreeBSD senders.** FreeBSD's RFC3164 output currently parses
+  wrong in VictoriaLogs: the app name lands in the hostname field. Set
+  `syslogd_flags="-s -O rfc5424"`. On MikroTik the equivalent is
+  `syslog-time-format=iso8601`, without which messages carry no year and no
+  offset.
+- **Nothing buffers.** A UDP datagram that arrives while the jail is down is
+  gone, and on a box that needs a manual `unlock.sh` after every reboot that
+  window is not theoretical. When it starts costing you, the relay belongs on
+  OPNsense - which already runs syslog-ng - and not here.
 
 ## Three things that will silently break backups
 

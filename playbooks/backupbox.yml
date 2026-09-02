@@ -58,5 +58,6 @@
     - backup_restic
     - backup_rsync
     - backup_zrecv
+    - backup_logs
     - backup_snapshots
     - backup_monitoring
