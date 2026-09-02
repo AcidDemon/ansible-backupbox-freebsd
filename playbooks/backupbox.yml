@@ -58,6 +58,9 @@
     - backup_restic
     - backup_rsync
     - backup_zrecv
-    - backup_logs
     - backup_snapshots
     - backup_monitoring
+    # Last on purpose. Nothing depends on it, and it is the only role here that
+    # does not protect a backup - so a jail that will not start must never stop
+    # the snapshot policy or the daily report from being updated.
+    - backup_logs
