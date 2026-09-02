@@ -9,7 +9,10 @@ backup_borg_package: ""
 # prune hides archives but reclaims nothing, so the host has to compact. There is
 # no retention setting here because the host cannot prune: that needs the
 # repository passphrase, which is the client's and stays the client's.
+# 01:00, not 03:00: /etc/crontab runs `periodic daily` at 03:01, and the borg
+# check in 520.backup-status wants the same exclusive repository lock. The loser
+# of that race reports a healthy repo as FAILED.
 backup_borg_compact_cron:
   minute: "0"
-  hour: "3"
+  hour: "1"
   weekday: "0"

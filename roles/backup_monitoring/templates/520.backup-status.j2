@@ -90,17 +90,33 @@ echo
 echo "== borg repository integrity =="
 # --repository-only checks segment integrity without the repo passphrase, which
 # the host does not have and should not have.
+#
+# In the jail as the client, not out here as root: check rewrites the repo
+# config to record how far it got, and a root-side run leaves that file owned by
+# root, after which the client cannot read its own repository. borg-compact runs
+# the same way, for the same reason - compact rewrites more of it still.
+borg_root="{{ backup_root }}/borg"
 found=0
-for repo in $(find_borg_repos "{{ backup_root }}/borg"); do
+for repo in $(find_borg_repos "$borg_root"); do
     found=1
-    if /usr/local/bin/borg check --repository-only "$repo" 2>&1; then
+    # $borg_root/<client>/... on the host is /backups/<client>/... in the jail.
+    rel=${repo#$borg_root/}
+    # A repo the jail cannot see is not a corrupt repo: the client was retired
+    # and its data kept, or the jail is down and jail(8) unwound the mounts.
+    # Said out loud, but at rc 1 - this is information, not corruption.
+    if [ ! -d "{{ jail_dataset_mount }}/borg/backups/$rel" ]; then
+        echo "skipped  $repo: not mounted in the borg jail"
+        continue
+    fi
+    if jexec -l -U "${rel%%/*}" borg \
+       /usr/local/bin/borg check --repository-only "/backups/$rel" 2>&1; then
         echo "ok       $repo"
     else
         echo "FAILED   $repo"
         rc=3
     fi
 done
-[ "$found" -eq 1 ] || echo "  no borg repositories under {{ backup_root }}/borg"
+[ "$found" -eq 1 ] || echo "  no borg repositories under $borg_root"
 
 {% if backup_clients | selectattr('services', 'contains', 'restic') | list | length > 0 %}
 echo

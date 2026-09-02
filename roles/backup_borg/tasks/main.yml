@@ -50,13 +50,6 @@
       changed_when: true
       when: _borg_pkg is changed
 
-    # The host needs it too: compaction runs outside the jail.
-    - name: Install borg on the host
-      community.general.pkgng:
-        name: "{{ borg_package }}"
-        state: present
-      environment: "{{ jail_pkg_environment }}"
-
     # /bin/sh, not nologin: sshd runs a forced command as "$SHELL -c ...", so a
     # nologin shell answers "This account is currently not available" and the
     # forced command never runs. Confinement comes from the forced command and
@@ -89,6 +82,24 @@
         owner: "{{ item.uid }}"
         group: "{{ item.uid }}"
         mode: "0700"
+      loop: "{{ _client_rows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Earlier releases ran compact and check on the host as root: compact
+    # rewrites the data segments, index, hints and integrity, check rewrites
+    # config. Those runs took ownership of everything they wrote, and the client
+    # could no longer use its own repository.
+    # Both now run inside the jail as the client; this only repairs the boxes
+    # that ran the old way.
+    # ponytail: delete once no deployed box predates that change.
+    - name: Repair repo files an old root-side borg run took ownership of
+      ansible.builtin.shell: |
+        find "{{ backup_root }}/{{ backup_borg_jail }}/{{ item.name }}" \
+             ! -user {{ item.uid }} -print \
+             -exec chown -h {{ item.uid }}:{{ item.uid }} {} +
+      register: _borg_chown
+      changed_when: _borg_chown.stdout | length > 0
       loop: "{{ _client_rows }}"
       loop_control:
         label: "{{ item.name }}"

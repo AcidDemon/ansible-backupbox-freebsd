@@ -19,7 +19,7 @@ stale=$(( now - 400000 ))      # ~111h   -> STALE (limit 26h)
 
 cat > "$work/vars.json" <<JSON
 {
- "backup_pool": "backup", "backup_root": "$work/backup",
+ "backup_pool": "backup", "backup_root": "$work/backup", "jail_dataset_mount": "$work/jails",
  "backup_clients": [
    {"name": "fresh_client", "uid": 5001, "services": ["borg"], "quota": "1G", "max_age_hours": 26,
     "ssh_key": "ssh-ed25519 AAAA x"},
@@ -102,7 +102,7 @@ fi
 # it has to leave the report at 1 while still saying that the list is empty.
 cat > "$work/empty.json" <<JSON
 {
- "backup_pool": "backup", "backup_root": "$work/backup", "backup_clients": [],
+ "backup_pool": "backup", "backup_root": "$work/backup", "jail_dataset_mount": "$work/jails", "backup_clients": [],
  "vault_healthchecks": {}, "backup_monitoring_default_max_age_hours": 26,
  "backup_monitoring_restic_sample": 5, "backup_monitoring_empty_bytes": 1048576
 }
@@ -124,6 +124,32 @@ if [ "$rc" -eq 1 ]; then
   echo "ok   exit 1 on a clean run"
 else
   echo "FAIL exit should be 1 on a clean run, got $rc"; fail=1
+fi
+
+# Third run, this time with a repo on disk. The check has to happen inside the
+# jail as the owning client, against the jail's path: borg rewrites config and
+# index when it commits, so a root-side run out here takes ownership of them and
+# the client can no longer read its own repository.
+# fresh_client is mounted into the jail; gone_client is a retired client whose
+# data was kept on the host but whose fstab line is gone. The second one must not
+# be reported as a corrupt repository.
+mkdir -p "$work/backup/borg/fresh_client/repo/data" "$work/jails/borg/backups/fresh_client/repo"
+: > "$work/backup/borg/fresh_client/repo/config"
+mkdir -p "$work/backup/borg/gone_client/repo/data"
+: > "$work/backup/borg/gone_client/repo/config"
+printf '#!/bin/sh\necho "jexec $*"\n' > "$work/bin/jexec"
+chmod +x "$work/bin/jexec"
+
+out=$(PATH="$work/bin:$PATH" sh "$work/520" 2>&1) || true
+
+check "borg check runs in the jail as the client" \
+  'jexec -l -U fresh_client borg /usr/local/bin/borg check --repository-only /backups/fresh_client/repo'
+check "a repo the jail cannot see is skipped, not called corrupt" \
+  'skipped .*gone_client/repo: not mounted'
+if printf '%s' "$out" | grep -q '^FAILED'; then
+  echo "FAIL a repo the jail cannot see must not be reported as corrupt"; fail=1
+else
+  echo "ok   a repo the jail cannot see is not reported as corrupt"
 fi
 
 [ "$fail" -eq 0 ] || { echo; echo "--- output ---"; printf '%s\n' "$out"; exit 1; }

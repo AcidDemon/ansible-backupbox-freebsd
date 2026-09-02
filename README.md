@@ -35,10 +35,17 @@ restic is the stronger of the two. `rest-server --append-only` refuses the delet
 outright: on the test VM `restic forget --keep-last 1 --prune` reported what it
 would keep and then left both snapshots in place.
 
-The host runs `borg compact` on a schedule to reclaim what a client's prune left
-behind, but it cannot run `borg prune` itself, because prune needs the repository
+The host schedules `borg compact` to reclaim what a client's prune left behind,
+but it cannot run `borg prune` itself, because prune needs the repository
 passphrase and these repos are encrypted client-side. Retention is the client's
 call; reclaiming the space is the host's.
+
+Both `borg compact` and the `borg check` in `520.backup-status` run inside the
+jail as the client, driven from the host by `jexec`. Neither is a read-only
+operation: compact rewrites the data segments, index, hints and integrity, and
+check rewrites the config to record how far it got. Run either as root and
+everything it wrote comes back owned by root, at which point the client cannot
+use its own repository and every backup fails.
 
 restic has no equivalent half. Because the delete is refused rather than
 recorded, nothing reclaims space and the client's quota fills eventually. The

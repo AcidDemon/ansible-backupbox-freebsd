@@ -7,9 +7,15 @@
 # client applies its own retention with prune, which append-only records without
 # destroying anything, and the host reclaims the space afterwards. compact is the
 # half that works without a key.
+#
+# The compaction itself runs inside the jail as the client, never as root out
+# here. Every compact writes fresh segments under data/ and rewrites index,
+# hints and integrity, so a root-side run leaves all of that owned by root - and
+# the client, which reaches the repo as an unprivileged jail user, can no longer
+# write its own repository. Every backup after that fails.
 set -u
 log() { logger -t borg-compact "$*"; echo "[borg-compact] $*"; }
-BORG=/usr/local/bin/borg
+ROOT="{{ backup_root }}/{{ backup_borg_jail }}"
 
 # The client chooses its own repository path under its directory, so the client
 # directory is usually not itself the repo. Find real repos by their layout: a
@@ -21,7 +27,12 @@ find_borg_repos() {
     done
 }
 
-find_borg_repos "{{ backup_root }}/{{ backup_borg_jail }}" | while read -r repo; do
-    $BORG compact "$repo" || log "$repo: compact rc=$?"
+find_borg_repos "$ROOT" | while read -r repo; do
+    # $ROOT/<client>/... on the host is /backups/<client>/... inside the jail,
+    # one nullfs mount per client dataset.
+    rel=${repo#$ROOT/}
+    # Absolute: a root crontab runs with PATH=/usr/bin:/bin, no /usr/sbin.
+    /usr/sbin/jexec -l -U "${rel%%/*}" {{ backup_borg_jail }} \
+        /usr/local/bin/borg compact "/backups/$rel" || log "$rel: compact rc=$?"
 done
 log "done"
