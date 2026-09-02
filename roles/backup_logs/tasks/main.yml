@@ -56,6 +56,11 @@
         group: "{{ _logs_pw.stdout.split(':')[3] }}"
         mode: "0750"
 
+    # backup_logs_service, not backup_logs_package: the port names these two
+    # directories after the rc script and everything else after the package, so
+    # they are /var/log/victoria_logs and /var/run/victoria_logs with an
+    # underscore while the account and the binary keep the hyphen.
+    #
     # pkg runs on the host, and the victoria-logs account exists only inside the
     # jail, so the ownership the plist asks for by name lands on whatever the
     # host's passwd resolves - which is not this account. daemon(8) opens the
@@ -66,14 +71,14 @@
     # right.
     - name: Let victoria-logs write its runtime directories
       ansible.builtin.file:
-        path: "{{ _jail_root }}/var/{{ item }}/{{ backup_logs_package }}"
+        path: "{{ _jail_root }}/var/{{ item }}/{{ backup_logs_service }}"
         state: directory
         owner: "{{ _logs_pw.stdout.split(':')[2] }}"
         group: "{{ _logs_pw.stdout.split(':')[3] }}"
         mode: "0750"
       loop: [log, run]
       loop_control:
-        label: "/var/{{ item }}/{{ backup_logs_package }}"
+        label: "/var/{{ item }}/{{ backup_logs_service }}"
 
     - name: Ensure the jail rc.conf.d exists
       ansible.builtin.file:
