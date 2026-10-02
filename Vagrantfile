@@ -169,8 +169,9 @@ Vagrant.configure("2") do |config|
         # fine. Add one kex net-ssh does support rather than turning
         # ssh_pin_crypto off, so the rest of the pinning is still exercised.
         # Harness-only: erebus is administered over OpenSSH and needs none of it.
-        "ssh_kex" => "curve25519-sha256,curve25519-sha256@libssh.org," \
-                     "diffie-hellman-group16-sha512,diffie-hellman-group18-sha512," \
+        "ssh_kex" => "mlkem768x25519-sha256,sntrup761x25519-sha512," \
+                     "sntrup761x25519-sha512@openssh.com," \
+                     "curve25519-sha256,curve25519-sha256@libssh.org," \
                      "diffie-hellman-group14-sha256",
       }
     end
