@@ -52,6 +52,12 @@
         backup: true
       notify: Reload rctl
 
+    # Now, not at the first flush further down the play: backup_logs starts
+    # victoria-logs before it flushes, so a raised cap queued until then lands
+    # after the service has already died under the old one.
+    - name: Apply changed rctl rules before any jail service starts
+      ansible.builtin.meta: flush_handlers
+
     - name: Check whether RACCT is live in this kernel
       ansible.builtin.command: sysctl -n kern.racct.enable
       register: _racct

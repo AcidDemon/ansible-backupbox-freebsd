@@ -118,14 +118,15 @@
 
     # Stronger than `service status`, which reports a process that is up but
     # rejected a flag or could not open its data directory. /health answers only
-    # once the listeners are bound.
+    # once the listeners are bound, and that waits for storage to open: with a
+    # backlog of small parts that took longer than the 15 s this used to allow.
     - name: Confirm victoria-logs answers on the tailnet-facing port
       ansible.builtin.uri:
         url: "http://10.100.{{ _jail[0].id }}.2:{{ backup_logs_http_port }}/health"
         status_code: 200
       register: _logs_health
       until: _logs_health is success
-      retries: 5
+      retries: 20
       delay: 3
 
   # victoria-logs writes its own reason for giving up to the daemon(8) log and

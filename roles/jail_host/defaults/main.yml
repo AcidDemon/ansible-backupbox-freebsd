@@ -29,8 +29,12 @@ jail_host_rctl:
     - pcpu:deny=50
   # victoria-logs holds its index in memory and forks nothing, so the process
   # cap is tight and the memory cap is the one to watch.
+  # openfiles is not the 4096 the others get: it keeps several files open per
+  # column in every part, and a merge backlog multiplies the parts. At 4096 it
+  # died with EMFILE twelve minutes after RACCT first went live, and every
+  # restart died again merging the same backlog.
   logs:
     - memoryuse:log=2g
     - maxproc:deny=32
-    - openfiles:deny=4096
+    - openfiles:deny=65536
     - pcpu:deny=50

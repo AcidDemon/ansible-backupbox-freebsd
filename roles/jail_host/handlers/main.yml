@@ -1,5 +1,11 @@
 ---
+# rctl(8) has no file option, so the old `rctl -f /etc/rctl.conf` failed every
+# time and failed_when hid it: a changed rule only took effect at the next
+# reboot. rc.d/rctl's restart is `rctl -r :` then `rctl -a` per line of
+# rctl_rules. Before the RACCT reboot there is nothing to reload, so skip
+# rather than fail.
 - name: Reload rctl
-  ansible.builtin.command: rctl -f /etc/rctl.conf
+  ansible.builtin.shell: |
+    [ "$(sysctl -n kern.racct.enable 2>/dev/null)" = 1 ] || exit 0
+    service rctl restart
   changed_when: true
-  failed_when: false   # no-op until the RACCT reboot has happened
