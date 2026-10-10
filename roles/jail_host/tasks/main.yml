@@ -49,7 +49,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
       notify: Reload rctl
 
     # Now, not at the first flush further down the play: backup_logs starts

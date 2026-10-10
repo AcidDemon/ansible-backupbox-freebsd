@@ -171,7 +171,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
       notify: Restart rsync sshd
 
     - name: Enable sshd in the jail

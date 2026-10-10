@@ -22,7 +22,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
 
     # --cron takes and prunes in one pass and decides internally what is due.
     # --quiet keeps the run silent unless something actually failed, which

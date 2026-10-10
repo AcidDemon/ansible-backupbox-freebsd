@@ -138,7 +138,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
       notify: Restart borg sshd
 
     - name: Enable sshd in the jail

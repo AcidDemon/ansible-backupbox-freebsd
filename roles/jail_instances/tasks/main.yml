@@ -88,7 +88,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
       loop: "{{ jails }}"
       loop_control:
         label: "{{ item.name }}"
@@ -103,7 +102,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
       loop: "{{ jails }}"
       loop_control:
         label: "{{ item.name }}"
@@ -134,7 +132,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
 
     # The jail needs a default route so replies reach tailnet clients. It still
     # cannot initiate outbound: pf has no pass rule for traffic arriving on the

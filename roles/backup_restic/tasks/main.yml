@@ -114,7 +114,6 @@
         owner: root
         group: wheel
         mode: "0644"
-        backup: true
       notify: Restart rest-server
 
     # Enabling in rc.conf starts nothing, and the restart handler only fires when
