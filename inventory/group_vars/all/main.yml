@@ -18,7 +18,7 @@ deploy_user: ansible
 admin_email: c.schlueter@acidnetworks.net
 
 # Everything the box has to tell you goes to admin_email: the periodic daily,
-# weekly, monthly and security runs (which carry 520.backup-status, aide, pkg
+# weekly and security runs (which carry 520.backup-status, aide, pkg
 # audit and the ZFS scrub result), the daily security posture report, and the
 # stdout of every root cron job, meaning borg-compact, jail-pkg-update,
 # freebsd-auto-update and sanoid.
