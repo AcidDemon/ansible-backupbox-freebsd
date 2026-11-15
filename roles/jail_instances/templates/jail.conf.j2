@@ -33,6 +33,16 @@
     exec.clean;
     exec.consolelog = "/var/log/jail_${name}_console.log";
 
+    # rc.shutdown only stops scripts tagged KEYWORD: shutdown, and the
+    # victoria-logs port's is not, so jail(8)'s SIGTERM is its only stop. With
+    # the default 10s it was killed while still closing its storage on
+    # /backups, the dying process kept the nullfs and devfs mounts busy, their
+    # unmounts failed, and the restart's start then failed on those leftovers.
+    # jail(8) stops waiting once the processes are gone, so a jail that exits
+    # quickly loses nothing to this.
+    # ponytail: one fixed value for every jail; make it per-jail if one needs more.
+    stop.timeout = 300;
+
     # Required, not optional. These jails are created before any service is
     # installed in them, so on a first converge /etc/rc exits with no process
     # left running and jail(8) would drop the jail again the moment it finished.
